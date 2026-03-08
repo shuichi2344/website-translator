@@ -1,9 +1,9 @@
-# Live Website Translator 🌐
+# Bridge 🌐
 
 Auto-translation system for Malaysian government websites - making public services accessible to everyone.
 
 **Part of:** Inclusive Citizen ASEAN Project (VHACK 2026)  
-**Feature:** Live Translator Module
+**Feature:** Bridge - Live Translator Module
 
 ---
 
@@ -15,9 +15,10 @@ This module provides real-time translation of government websites for both deskt
 
 - ✅ Auto-detects Malaysian government websites (`.gov.my` domains)
 - ✅ Real-time translation with full website interactivity
-- ✅ Supports 100+ languages via Google Translate
+- ✅ Supports 107 languages via Google Translate
 - ✅ Preserves website design and functionality
-- ✅ Works on desktop browsers and mobile devices
+- ✅ Mobile app with browser detection
+- ✅ No database - all settings stored locally
 - ✅ No API costs (uses googletrans)
 
 ---
@@ -34,14 +35,17 @@ This module provides real-time translation of government websites for both deskt
 
 ```bash
 # Clone the repository
-git clone https://github.com/[your-username]/live-translator.git
-cd live-translator
+git clone https://github.com/[your-username]/bridge-translator.git
+cd bridge-translator
 
-# Install dependencies
+# For Python backend:
 pip install -r requirements.txt
-
-# Run the translator
 python prototype_translation_v3_auto.py
+
+# For Flutter mobile app:
+cd live_translator_app
+flutter pub get
+flutter run -d chrome  # or android/ios
 ```
 
 ### Usage
@@ -63,16 +67,19 @@ python prototype_translation_v3_auto.py
 ## 📦 Project Structure
 
 ```
-live-translator/
-├── prototype_translation_v3_auto.py  # Main translation script
+bridge-translator/
+├── live_translator_app/              # Flutter mobile app
+│   ├── lib/
+│   │   ├── main.dart                 # App entry point
+│   │   ├── screens/                  # UI screens
+│   │   ├── constants/                # Colors, languages, domains
+│   │   ├── models/                   # Data models
+│   │   └── services/                 # Storage & API services
+│   └── pubspec.yaml
+├── prototype_translation_v3_auto.py  # Python translation backend
 ├── requirements.txt                   # Python dependencies
 ├── README.md                          # This file
-├── .gitignore                         # Git ignore rules
-└── .kiro/                            # Specs and documentation
-    └── specs/
-        └── web-scraping-translation/
-            ├── requirements.md
-            └── design.md
+└── CHANGELOG.md                       # Version history
 ```
 
 ---
@@ -107,17 +114,19 @@ live-translator/
 - [x] Design preservation
 - [x] Handle complex HTML elements
 
-### Phase 2: Auto-Detection (In Progress)
-- [ ] Browser extension for desktop
+### Phase 2: Mobile App (In Progress)
+- [x] Flutter mobile app UI
+- [x] Language selection (107 languages)
+- [x] Tutorial screens
+- [x] Local storage (no database)
+- [ ] Browser detection integration
 - [ ] Auto-detect government websites
-- [ ] One-click translation
-- [ ] Mobile browser app
+- [ ] One-tap translation
 
-### Phase 3: Advanced Features (Planned)
-- [ ] OCR overlay for mobile
-- [ ] Offline translation mode
-- [ ] Translation memory/caching
-- [ ] Multi-language support
+### Phase 3: Polish & Testing
+- [ ] End-to-end testing
+- [ ] Performance optimization
+- [ ] User feedback integration
 
 ---
 
@@ -128,18 +137,22 @@ This module will be integrated into the **Inclusive Citizen ASEAN** project:
 ```
 inclusive_citizen_ASEAN/
 ├── speech-engine/        # Teammate's module
-└── live-translator/      # This module
+└── bridge/               # This module
+    ├── backend/          # Python translation service
+    └── mobile-app/       # Flutter app
 ```
 
-**Integration Branch:** `feat/live-translator`  
+**Integration Branch:** `feat/bridge-translator`  
 **Target Branch:** `main_dev`
 
 ---
 
-## 🐛 Known Issues
+## 🐛 Known Issues & Limitations
 
 - Rate limits: ~100-200 requests/hour (googletrans limitation)
-- Requires Chrome browser
+- Requires Chrome browser for Python backend
+- No database - all settings stored locally on device
+- No OCR overlay - focuses on browser-based translation only
 - Some dynamic content may need page refresh
 
 ---
@@ -158,7 +171,7 @@ Test on these Malaysian government sites:
 googletrans is unofficial and has rate limits. For production:
 - Consider Google Cloud Translation API
 - Implement request throttling
-- Add translation caching
+- Note: No caching/database planned for this version
 
 ---
 
@@ -170,7 +183,7 @@ This project is part of VHACK 2026 hackathon submission.
 
 ## 👥 Team
 
-**Live Translator Module Lead:** [Your Name]  
+**Bridge Module Lead:** [Your Name]  
 **Project:** Inclusive Citizen ASEAN  
 **Hackathon:** VHACK 2026 - Case Study 4
 
