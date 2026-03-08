@@ -70,8 +70,9 @@ live-translator/
 ├── .gitignore                         # Git ignore rules
 └── .kiro/                            # Specs and documentation
     └── specs/
-        ├── web-scraping-translation/
-        └── realtime-text-translation-overlay/
+        └── web-scraping-translation/
+            ├── requirements.md
+            └── design.md
 ```
 
 ---
