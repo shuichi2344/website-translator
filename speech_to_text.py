@@ -8,12 +8,12 @@ from transformers import pipeline
 # ==========================
 
 ASR_MODEL = "mesolitica/malaysian-whisper-small-v2"
-LLM_MODEL = "sail/Sailor2-8B-Chat"  # Local model
+LLM_MODEL = "sail/Sailor2-8B-Chat"
 SAMPLING_RATE = 16000
 
 
 # ==========================
-# LOAD ASR MODEL (LOCAL)
+# LOAD ASR MODEL
 # ==========================
 
 print(f"Loading ASR model: {ASR_MODEL}...")
@@ -22,12 +22,12 @@ asr_pipe = pipeline(
     "automatic-speech-recognition",
     model=ASR_MODEL,
     chunk_length_s=30,
-    device=-1  # CPU
+    device=-1
 )
 
 
 # ==========================
-# LOAD LLM (LOCAL)
+# LOAD LLM MODEL
 # ==========================
 
 print(f"Loading LLM model: {LLM_MODEL} (this may take a while)...")
@@ -35,8 +35,8 @@ print(f"Loading LLM model: {LLM_MODEL} (this may take a while)...")
 llm_pipe = pipeline(
     "text-generation",
     model=LLM_MODEL,
-    device_map="auto",     # Automatically select GPU if available
-    torch_dtype="auto",    # Use optimal dtype
+    device_map="auto",
+    torch_dtype="auto",
 )
 
 
@@ -45,15 +45,16 @@ llm_pipe = pipeline(
 # ==========================
 
 def normalize_dialect(text):
-    """
-    Convert Singlish/Manglish/Dialects into standard English.
-    """
 
     system_msg = (
-        "You are a Southeast Asian language assistant. "
-        "Convert the user sentence into clear standard English. "
-        "Remove Singlish, Manglish, and dialect expressions. "
-        "Return ONLY the corrected sentence."
+        "You convert spoken Southeast Asian dialect into a concise web search query.\n"
+        "Tasks:\n"
+        "1. Remove Singlish, Manglish, and dialect expressions.\n"
+        "2. Convert the sentence into clear standard English.\n"
+        "3. Rewrite it as a short web search query.\n"
+        "4. Keep important keywords such as names, numbers, places, and topics.\n"
+        "5. Remove filler words like 'can', 'please', 'tell me', 'I want to know'.\n"
+        "6. Output ONLY the final search query.\n"
     )
 
     prompt = f"<|im_start|>system\n{system_msg}<|im_end|>\n<|im_start|>user\nSentence: {text}<|im_end|>\n<|im_start|>assistant\n"
@@ -87,6 +88,7 @@ class PTTSession:
     def __init__(self):
         self.recording = False
         self.audio_data = []
+        self.final_text = None
 
     def callback(self, indata, frames, time, status):
         if self.recording:
@@ -124,42 +126,55 @@ class PTTSession:
 
         improved = normalize_dialect(raw_text)
 
+        self.final_text = improved
+
         print("-" * 30)
         print(f"✨ Final English: {improved}")
         print("-" * 30)
 
 
 # ==========================
-# RUNTIME HANDLERS
+# MAIN RUN FUNCTION
 # ==========================
 
-session = PTTSession()
+def speech_to_text():
 
-def on_press(key):
-    if key == keyboard.Key.space:
-        session.start_recording()
+    session = PTTSession()
 
-def on_release(key):
+    def on_press(key):
+        if key == keyboard.Key.space:
+            session.start_recording()
 
-    if key == keyboard.Key.space:
-        session.stop_recording()
+    def on_release(key):
 
-    if key == keyboard.Key.esc:
-        print("\nExiting...")
-        return False
+        if key == keyboard.Key.space:
+            session.stop_recording()
+
+        if key == keyboard.Key.esc:
+            print("\nExiting...")
+            return False
+
+    stream = sd.InputStream(
+        samplerate=SAMPLING_RATE,
+        channels=1,
+        callback=session.callback
+    )
+
+    print("\n🚀 Sailor2 Voice Assistant Ready")
+    print("1. Hold [SPACE] to speak")
+    print("2. Release [SPACE] to translate to Standard English")
+    print("3. Press [ESC] to quit")
+
+    with stream:
+        with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+            listener.join()
+
+    return session.final_text
 
 
-stream = sd.InputStream(
-    samplerate=SAMPLING_RATE,
-    channels=1,
-    callback=session.callback
-)
+# ==========================
+# DIRECT RUN
+# ==========================
 
-print("\n🚀 Sailor2 Voice Assistant Ready")
-print("1. Hold [SPACE] to speak (supports Singlish/Manglish/Malay)")
-print("2. Release [SPACE] to translate to Standard English")
-print("3. Press [ESC] to quit")
-
-with stream:
-    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-        listener.join()
+if __name__ == "__main__":
+    run_speech_to_text()

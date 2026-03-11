@@ -1,9 +1,3 @@
-import sounddevice as sd
-import numpy as np
-from pynput import keyboard
-from transformers import pipeline
-import torch
-import warnings
 from datetime import datetime
 from ddgs import DDGS
 import trafilatura
@@ -11,47 +5,11 @@ import requests
 import spacy
 from sentence_transformers import SentenceTransformer, util
 
-# Load the small English model
 nlp = spacy.load("en_core_web_sm")
-
-# 1. Suppress the annoying transformers warnings
-warnings.filterwarnings("ignore", category=FutureWarning)
-
-# --- Configuration ---
-MODEL_NAME = "mesolitica/malaysian-whisper-small-v2"
-QUERY_CLEANER_MODEL = "meta-llama/Llama-3.2-1B-Instruct"
-SAMPLING_RATE = 16000
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-print(f"Loading model '{MODEL_NAME}' onto {device}...")
-pipe = pipeline(
-    "automatic-speech-recognition",
-    model=MODEL_NAME,
-    chunk_length_s=30,
-    device=device
-)
 
 class PTTSession:
     def __init__(self):
-        self.recording = False
-        self.audio_data = []
         self.embed_model = SentenceTransformer("all-MiniLM-L6-v2")
-
-    def callback(self, indata, frames, time, status):
-        if self.recording:
-            self.audio_data.append(indata.copy())
-
-    def start_recording(self):
-        if not self.recording:
-            print("\n🔴 Listening... (Release SPACE to stop)")
-            self.audio_data = []
-            self.recording = True
-
-    def stop_recording(self):
-        if self.recording:
-            self.recording = False
-            print("⏹️  Processing...")
-            self.process_audio()
 
     def get_full_page_content(self, url):
         """Fetch URL and extract main text with trafilatura (ignores ads/menus)."""
@@ -195,71 +153,16 @@ class PTTSession:
             print(f"❌ Ollama Error: {e}")
             return None
 
-    def refine_query(self, raw_text):
-        doc = nlp(raw_text.lower())
-
-        keywords = []
-
-        for token in doc:
-
-            # keep important grammatical roles
-            if token.dep_ in ["nsubj", "dobj", "pobj", "attr", "ROOT"]:
-                keywords.append(token.lemma_)
-
-            # keep numbers (age, dates, quantities)
-            if token.pos_ == "NUM":
-                keywords.append(token.text)
-
-            # keep named entities
-            if token.ent_type_:
-                keywords.append(token.text)
-
-        # remove duplicates but preserve order
-        seen = set()
-        compressed = []
-
-        for word in keywords:
-            if word not in seen:
-                seen.add(word)
-                compressed.append(word)
-
-        return " ".join(compressed)
-
-    def process_audio(self):
-        if not self.audio_data:
-            return
-        
-        audio_np = np.concatenate(self.audio_data, axis=0).flatten()
-        result = pipe(audio_np, generate_kwargs={"task": "transcribe"})
-        raw_text = result['text'].strip()
-        
-        print(f"📝 You asked: {raw_text}")
-
-        # Basic filter to ensure we aren't searching for "junk" input
-        if len(raw_text) > 4:
-            refined = self.refine_query(raw_text)
-            print(f"🧹 Cleaned query: {refined}")
-            self.get_answer_from_web(refined)
-        else:
-            print("⚠️ Input too short to search.")
-
 session = PTTSession()
 
-def on_press(key):
-    if key == keyboard.Key.space:
-        session.start_recording()
 
-def on_release(key):
-    if key == keyboard.Key.space:
-        session.stop_recording()
-    if key == keyboard.Key.esc:
-        return False
-
-stream = sd.InputStream(samplerate=SAMPLING_RATE, channels=1, callback=session.callback)
-
-print(f"\n✅ READY! (Today is {datetime.now().strftime('%A, %d %B %Y')})")
-print("Hold SPACE to ask a question. Press ESC to quit.")
-
-with stream:
-    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-        listener.join()
+def search_web(query: str) -> None:
+    """
+    Entry point used by main.py.
+    Takes a text query (e.g. from speech_to_text) and runs the web-scraping flow.
+    """
+    if not query or not query.strip():
+        print("⚠️ Empty query, skipping web search.")
+        return
+    print(f"🔎 Searching web for: {query}")
+    session.get_answer_from_web(query.strip())
