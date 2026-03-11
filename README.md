@@ -15,42 +15,26 @@ This module provides real-time translation of government websites for both deskt
 
 - ✅ Auto-detects Malaysian government websites (`.gov.my` domains)
 - ✅ Real-time translation with full website interactivity
+- ✅ **AI-powered document summarization using Google Gemini**
 - ✅ Supports 107 languages via Google Translate
 - ✅ Preserves website design and functionality
+- ✅ **Intelligent abstractive summaries with local AI**
+- ✅ **Extract text from scanned documents with OCR**
 - ✅ Mobile app with browser detection
 - ✅ No database - all settings stored locally
-- ✅ No API costs (uses googletrans)
+- ✅ No API costs (uses googletrans + local AI)
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
-
-- Python 3.8+
-- Chrome browser
-- Internet connection
-
-### Installation
+### Website Translation
 
 ```bash
-# Clone the repository
-git clone https://github.com/[your-username]/bridge-translator.git
-cd bridge-translator
-
-# For Python backend:
+# Install dependencies
 pip install -r requirements.txt
-python prototype_translation_v3_auto.py
 
-# For Flutter mobile app:
-cd live_translator_app
-flutter pub get
-flutter run -d chrome  # or android/ios
-```
-
-### Usage
-
-```bash
+# Run the translator
 python prototype_translation_v3_auto.py
 
 # Enter a Malaysian government website:
@@ -60,6 +44,34 @@ python prototype_translation_v3_auto.py
 # Example: en (English)
 
 # Browser opens with translated content!
+```
+
+### Document & Website Summarization
+
+**Prerequisites:**
+1. Get a Google Gemini API key:
+   - Create a `.env` file (see `.env.example`) and add `GOOGLE_API_KEY` and (optionally) `GEMINI_MODEL`
+
+**Web Interface (Recommended):**
+```bash
+python summarizer_web.py
+# Open browser to http://localhost:5000
+```
+
+**Command Line:**
+```bash
+python document_summarizer.py
+# Follow the prompts
+```
+
+See [SUMMARIZER_README.md](SUMMARIZER_README.md) for detailed instructions.
+
+### Mobile App
+
+```bash
+cd live_translator_app
+flutter pub get
+flutter run -d chrome  # or android/ios
 ```
 
 ---
@@ -76,9 +88,14 @@ bridge-translator/
 │   │   ├── models/                   # Data models
 │   │   └── services/                 # Storage & API services
 │   └── pubspec.yaml
-├── prototype_translation_v3_auto.py  # Python translation backend
+├── prototype_translation_v3_auto.py  # Website translation backend
+├── document_summarizer.py            # Document/website summarizer (CLI)
+├── summarizer_web.py                 # Summarizer web interface
 ├── requirements.txt                   # Python dependencies
 ├── README.md                          # This file
+├── SUMMARIZER_README.md              # Summarizer documentation
+├── OLLAMA_SETUP.md                   # AI model setup guide
+├── QUICK_START.md                     # Quick start guide
 └── CHANGELOG.md                       # Version history
 ```
 
@@ -87,9 +104,12 @@ bridge-translator/
 ## 🛠️ Technology Stack
 
 - **Translation:** Google GNMT via googletrans (4.0.0rc1)
-- **Browser Automation:** Selenium WebDriver
-- **Web Scraping:** BeautifulSoup4
-- **Languages:** Python 3.8+
+- **Website Translation:** Selenium WebDriver, BeautifulSoup4
+- **Document Processing:** Docling (OCR-enabled)
+- **AI Summarization:** Google Gemini (e.g. `gemini-3.1-flash-lite-preview`)
+- **Web Interface:** Flask
+- **Mobile App:** Flutter/Dart
+- **Languages:** Python 3.8+, Dart
 
 ---
 
@@ -206,4 +226,4 @@ For questions or collaboration:
 ---
 
 **Status:** 🟢 Active Development  
-**Last Updated:** March 8, 2026
+**Last Updated:** March 9, 2026

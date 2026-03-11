@@ -38,6 +38,11 @@ ENV/
 Thumbs.db
 desktop.ini
 
+# Environment variables & API keys
+.env
+*.env
+!.env.example
+
 # Project specific
 translation_cache.json
 *.log
