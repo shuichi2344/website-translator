@@ -5,8 +5,12 @@ Document & Website Summarizer - Web Interface
 from flask import Flask, render_template_string, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import os
-from document_summarizer import DocumentSummarizer
+from dotenv import load_dotenv
+from document_summariser_v6_docling import DocumentSummarizer
 from pathlib import Path
+
+# Load environment variables
+load_dotenv()
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -257,7 +261,7 @@ HTML_TEMPLATE = """
         <div class="header">
             <div class="icon">📄</div>
             <h1>Bridge Document Summarizer</h1>
-            <p class="subtitle">Summarize documents and websites with OCR support</p>
+            <p class="subtitle">ASEAN Multilingual Document & Website Summarizer with Docling (Advanced Document Processing)</p>
         </div>
         
         <div class="tabs">
@@ -271,21 +275,28 @@ HTML_TEMPLATE = """
                 <div class="form-group">
                     <label>Upload Document</label>
                     <div class="file-input-wrapper">
-                        <input type="file" name="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.docx,.pptx,.xlsx" required>
+                        <input type="file" name="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.bmp,.tiff" required>
                         <label for="file" class="file-input-label">
-                            <span id="file-label-text">📎 Click to select file (PDF, Image, DOCX, PPTX, XLSX)</span>
+                            <span id="file-label-text">📎 Click to select file (PDF or Images)</span>
                         </label>
                     </div>
                 </div>
                 
                 <div class="form-group">
-                    <label for="doc_lang">Target Language</label>
+                    <label for="doc_lang">Target Language (ASEAN)</label>
                     <select name="target_lang" id="doc_lang">
                         <option value="en">English</option>
-                        <option value="ms">Malay (Bahasa Melayu)</option>
-                        <option value="zh-cn">Chinese (Simplified)</option>
+                        <option value="ms">Malay</option>
+                        <option value="id">Indonesian</option>
+                        <option value="vi">Vietnamese</option>
+                        <option value="th">Thai</option>
+                        <option value="zh-cn">Chinese Simplified</option>
+                        <option value="zh-tw">Chinese Traditional</option>
                         <option value="ta">Tamil</option>
-                        <option value="hi">Hindi</option>
+                        <option value="tl">Tagalog/Filipino</option>
+                        <option value="my">Burmese/Myanmar</option>
+                        <option value="km">Khmer</option>
+                        <option value="lo">Lao</option>
                     </select>
                 </div>
                 
@@ -304,13 +315,20 @@ HTML_TEMPLATE = """
                 </div>
                 
                 <div class="form-group">
-                    <label for="web_lang">Target Language</label>
+                    <label for="web_lang">Target Language (ASEAN)</label>
                     <select name="target_lang" id="web_lang">
                         <option value="en">English</option>
-                        <option value="ms">Malay (Bahasa Melayu)</option>
-                        <option value="zh-cn">Chinese (Simplified)</option>
+                        <option value="ms">Malay</option>
+                        <option value="id">Indonesian</option>
+                        <option value="vi">Vietnamese</option>
+                        <option value="th">Thai</option>
+                        <option value="zh-cn">Chinese Simplified</option>
+                        <option value="zh-tw">Chinese Traditional</option>
                         <option value="ta">Tamil</option>
-                        <option value="hi">Hindi</option>
+                        <option value="tl">Tagalog/Filipino</option>
+                        <option value="my">Burmese/Myanmar</option>
+                        <option value="km">Khmer</option>
+                        <option value="lo">Lao</option>
                     </select>
                 </div>
 
@@ -356,9 +374,11 @@ HTML_TEMPLATE = """
         <div class="note">
             <strong>📝 Note:</strong><br>
             • Maximum file size: 50MB<br>
-            • OCR enabled for scanned documents<br>
-            • Supports PDF, images, DOCX, PPTX, XLSX<br>
-            • Website summarization extracts main content
+            • Docling - Advanced document processing with automatic language detection<br>
+            • Complex table recognition and layout preservation<br>
+            • Supports PDF and images (PNG, JPG, JPEG, BMP, TIFF)<br>
+            • Website summarization extracts main content<br>
+            • GPU acceleration for faster processing
         </div>
     </div>
     
@@ -610,6 +630,7 @@ def qa_website():
 if __name__ == '__main__':
     print("=" * 60)
     print("🌐 Bridge Document Summarizer - Web Interface")
+    print("Docling - Advanced Document Processing")
     print("=" * 60)
     print("\n✅ Server starting...")
     print("📱 Open your browser and go to: http://localhost:5000")
