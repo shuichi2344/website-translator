@@ -19,12 +19,14 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # Virtual Environment
 venv/
 env/
 ENV/
 .venv
+.venv/
 
 # IDE
 .vscode/
@@ -32,20 +34,31 @@ ENV/
 *.swp
 *.swo
 *~
+.kiro/
 
 # OS
 .DS_Store
 Thumbs.db
 desktop.ini
+*.lnk
 
 # Environment variables & API keys
 .env
 *.env
 !.env.example
 
+# Flask
+instance/
+.webassets-cache
+
+# Uploads & Temporary files
+uploads/
+*.tmp
+*.bak
+*.log
+
 # Project specific
 translation_cache.json
-*.log
 chromedriver.exe
 geckodriver.exe
 
@@ -55,7 +68,73 @@ geckodriver.exe
 # Test files
 test_*.py
 *_test.py
+pytest_cache/
+.pytest_cache/
 
-# Temporary files
-*.tmp
-*.bak
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Documentation builds
+docs/_build/
+site/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Compiled files
+*.pyc
+*.pyo
+*.pyd
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# Browser extension (keep source, ignore builds)
+browser-extension/*.zip
+browser-extension/*.crx
+browser-extension/*.xpi
+
+# Docling cache
+.docling_cache/
+
+# AI model cache
+.cache/
+models/
+
+# Large files
+*.pdf
+*.zip
+*.tar.gz
+*.rar
+
+# Keep example files
+!example.pdf
+!sample.pdf

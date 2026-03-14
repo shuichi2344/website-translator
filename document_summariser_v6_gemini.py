@@ -1,8 +1,8 @@
 """
-Document & Website Summarizer using Docling
+Document & Website Summarizer using Docling + Google Gemini
 Optimized for automatic mixed-language detection
 Supports PDFs with complex tables and layout preservation
-100% FREE - No API keys needed!
+Uses Google Gemini Flash for AI summarization
 """
 
 import os
@@ -19,26 +19,24 @@ load_dotenv()
 
 
 class DocumentSummarizer:
-    def __init__(self, target_lang='en', use_ai=True, model='llama3.2'):
+    def __init__(self, target_lang='en', use_ai=True, model='gemini-3-flash-preview'):
         self.target_lang = target_lang
         self.use_ai = use_ai
         self.model = model
-        self.ollama_url = "http://localhost:11434/api/generate"
+        self.gemini_api_key = os.getenv('GEMINI_API_KEY')
         
         # Initialize Docling with optimized settings
         print("🔄 Initializing Docling...")
         self._init_docling()
         
         if self.use_ai:
-            self._check_ollama()
+            self._check_gemini()
     
     def _init_docling(self):
         """Initialize Docling with optimized settings for mixed-language support"""
         try:
             from docling.document_converter import DocumentConverter, PdfFormatOption
             from docling.datamodel.base_models import InputFormat
-            from docling.pipeline.simple_pipeline import SimplePipeline
-            from docling.pipeline.standard_pdf_pipeline import StandardPdfPipeline
             from docling.datamodel.pipeline_options import (
                 PdfPipelineOptions,
                 TableStructureOptions,
@@ -51,8 +49,8 @@ class DocumentSummarizer:
             
             # Configure PDF pipeline with OCR and table structure recognition
             pipeline_options = PdfPipelineOptions(
-                do_ocr=True,  # Enable OCR for text extraction
-                do_table_structure=True,  # Enable table structure recognition
+                do_ocr=True,
+                do_table_structure=True,
                 table_structure_options=table_options,
             )
             
@@ -81,18 +79,18 @@ class DocumentSummarizer:
             traceback.print_exc()
             raise
     
-    def _check_ollama(self):
-        """Check if Ollama is running for summarization"""
-        try:
-            response = requests.get("http://localhost:11434/api/tags", timeout=2)
-            if response.status_code == 200:
-                print(f"✅ Ollama is running - using {self.model} for summarization")
-                return True
-        except:
-            pass
-        print("⚠️  Ollama not detected - using extractive summarization")
-        self.use_ai = False
-        return False
+    def _check_gemini(self):
+        """Check if Gemini API key is configured"""
+        if not self.gemini_api_key:
+            print("⚠️  Gemini API key not configured")
+            print("   Add GEMINI_API_KEY to your .env file")
+            print("   Get your API key from: https://aistudio.google.com/apikey")
+            print("   Using extractive summarization instead")
+            self.use_ai = False
+            return False
+        
+        print(f"✅ Gemini API configured - using {self.model} for summarization")
+        return True
 
     def extract_text_from_document(self, file_path):
         """Extract text from document using Docling VLM pipeline"""
@@ -150,13 +148,12 @@ class DocumentSummarizer:
             print(f"   • Words: {len(plain_text.split())}")
             
             # Count tables if any
-            table_count = markdown_text.count('|')  # Simple table detection
-            if table_count > 10:  # Likely has tables
+            table_count = markdown_text.count('|')
+            if table_count > 10:
                 print(f"   • Tables detected: Yes")
             
             print(f"✅ Document processed successfully\n")
             
-            # Return markdown for better structure preservation
             return markdown_text
             
         except Exception as e:
@@ -165,7 +162,7 @@ class DocumentSummarizer:
             traceback.print_exc()
             return None
     
-    def extract_text_from_website(self, url):
+    def extract_text_from_website(self, url, crawl_depth=0, max_sublinks=3):
         """Extract text from website using Firecrawl for better scraping"""
         print(f"🌐 Fetching website: {url}")
         
@@ -177,24 +174,56 @@ class DocumentSummarizer:
                 print("   Using Firecrawl for enhanced web scraping...")
                 try:
                     from firecrawl import Firecrawl
+                    from firecrawl.v2.types import ScrapeOptions
                     
                     app = Firecrawl(api_key=firecrawl_key)
                     
-                    # Scrape with markdown format for clean content
-                    result = app.scrape(
-                        url,
-                        formats=['markdown']
-                    )
+                    # Firecrawl Fast Scraping: Up to 500% faster with cached data
+                    # maxAge values: 1 hour = 3600000ms, 1 day = 86400000ms, 2 days = 172800000ms (default)
+                    # Government websites change infrequently, so we use 1 day cache for optimal speed
+                    cache_max_age = 86400000  # 1 day - government sites rarely change
                     
-                    # Firecrawl returns a Document object with markdown attribute
-                    if hasattr(result, 'markdown') and result.markdown:
-                        text = result.markdown
-                        print(f"✅ Extracted {len(text)} characters via Firecrawl")
-                        return text
-                    elif isinstance(result, dict) and 'markdown' in result:
-                        text = result['markdown']
-                        print(f"✅ Extracted {len(text)} characters via Firecrawl")
-                        return text
+                    # If crawl_depth > 0, use crawl instead of scrape
+                    if crawl_depth > 0:
+                        print(f"   🕷️ Crawling with depth {crawl_depth}, max {max_sublinks} pages...")
+                        print(f"   ⚡ Fast mode: Using cached data (up to 1 day old) for 500% faster scraping")
+                        
+                        result = app.crawl(
+                            url,
+                            limit=max_sublinks,
+                            scrape_options=ScrapeOptions(
+                                formats=['markdown'],
+                                max_age=cache_max_age  # Fast scraping with 1-day cache
+                            )
+                        )
+                        
+                        if result and hasattr(result, 'data'):
+                            all_text = []
+                            for i, page in enumerate(result.data[:max_sublinks]):
+                                page_url = page.metadata.source_url if hasattr(page.metadata, 'source_url') else f'Page {i+1}'
+                                page_text = page.markdown if hasattr(page, 'markdown') else ''
+                                if page_text:
+                                    all_text.append(f"=== {page_url} ===\n{page_text}")
+                                    print(f"   ✓ Scraped: {page_url}")
+                            
+                            if all_text:
+                                combined_text = '\n\n'.join(all_text)
+                                print(f"✅ Extracted {len(combined_text)} characters from {len(all_text)} pages via Firecrawl")
+                                return combined_text
+                    else:
+                        # Single page scrape with caching
+                        print(f"   ⚡ Fast mode: Using cached data (up to 1 day old) for 500% faster scraping")
+                        
+                        result = app.scrape(
+                            url,
+                            formats=['markdown'],
+                            max_age=cache_max_age  # Fast scraping with 1-day cache
+                        )
+                        
+                        if hasattr(result, 'markdown') and result.markdown:
+                            text = result.markdown
+                            print(f"✅ Extracted {len(text)} characters via Firecrawl")
+                            return text
                     
                     print(f"   ⚠️  No markdown content in Firecrawl response")
                     print("   Falling back to BeautifulSoup...")
@@ -205,85 +234,198 @@ class DocumentSummarizer:
                 except Exception as e:
                     print(f"   ⚠️  Firecrawl failed: {e}")
                     print("   Falling back to BeautifulSoup...")
-            elif firecrawl_key == 'your-firecrawl-api-key-here':
-                print("   ⚠️  Firecrawl API key not configured (using placeholder)")
-                print("   Add your API key to .env file")
             
-            # Fallback to BeautifulSoup
+            # Fallback to BeautifulSoup with manual crawling
             if not url.startswith(('http://', 'https://')):
                 url = 'https://' + url
             
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
+            
+            # Scrape main page
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
             
+            # Extract main page text
             for script in soup(["script", "style", "nav", "footer", "header"]):
                 script.decompose()
             
-            text = soup.get_text(separator='\n', strip=True)
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            text = '\n'.join(lines)
+            main_text = soup.get_text(separator='\n', strip=True)
+            lines = [line.strip() for line in main_text.split('\n') if line.strip()]
+            main_text = '\n'.join(lines)
             
-            print(f"✅ Extracted {len(text)} characters via BeautifulSoup")
-            return text
+            all_texts = [f"=== Main Page: {url} ===\n{main_text}"]
+            print(f"✅ Extracted {len(main_text)} characters from main page")
+            
+            # If crawl_depth > 0, find and scrape sublinks
+            if crawl_depth > 0:
+                print(f"   🕷️ Finding relevant sublinks...")
+                from urllib.parse import urljoin, urlparse
+                
+                base_domain = urlparse(url).netloc
+                links = soup.find_all('a', href=True)
+                
+                # Filter relevant links (same domain, not anchors, not files)
+                relevant_links = []
+                for link in links:
+                    href = link.get('href')
+                    full_url = urljoin(url, href)
+                    parsed = urlparse(full_url)
+                    
+                    # Only same domain, no anchors, no files
+                    if (parsed.netloc == base_domain and 
+                        not href.startswith('#') and
+                        not any(full_url.endswith(ext) for ext in ['.pdf', '.jpg', '.png', '.zip', '.doc'])):
+                        
+                        if full_url not in relevant_links and full_url != url:
+                            relevant_links.append(full_url)
+                
+                # Scrape top N sublinks
+                for i, sublink in enumerate(relevant_links[:max_sublinks]):
+                    try:
+                        print(f"   Scraping sublink {i+1}/{min(len(relevant_links), max_sublinks)}: {sublink}")
+                        sub_response = requests.get(sublink, headers=headers, timeout=10)
+                        sub_response.raise_for_status()
+                        
+                        sub_soup = BeautifulSoup(sub_response.content, 'html.parser')
+                        for script in sub_soup(["script", "style", "nav", "footer", "header"]):
+                            script.decompose()
+                        
+                        sub_text = sub_soup.get_text(separator='\n', strip=True)
+                        sub_lines = [line.strip() for line in sub_text.split('\n') if line.strip()]
+                        sub_text = '\n'.join(sub_lines)
+                        
+                        all_texts.append(f"=== Subpage: {sublink} ===\n{sub_text}")
+                        print(f"   ✓ Extracted {len(sub_text)} characters")
+                    except Exception as e:
+                        print(f"   ⚠️  Failed to scrape {sublink}: {e}")
+                        continue
+            
+            combined_text = '\n\n'.join(all_texts)
+            print(f"✅ Total extracted: {len(combined_text)} characters from {len(all_texts)} pages")
+            return combined_text
             
         except Exception as e:
             print(f"❌ Error fetching website: {e}")
             return None
     
     def summarize_text(self, text, num_sentences=5):
-        """Summarize text using AI (Ollama)"""
+        """Summarize text using AI (Gemini)"""
         if self.use_ai:
             return self._summarize_with_ai(text, num_sentences)
         else:
             return self._summarize_extractive(text, num_sentences)
     
     def _summarize_with_ai(self, text, num_sentences=5):
-        """Use Ollama AI for abstractive summarization"""
+        """Use Google Gemini for abstractive summarization"""
         print(f"\n🤖 Generating AI summary using {self.model}...")
         
         word_count = len(text.split())
         print(f"   Document length: {word_count} words")
         
-        if word_count <= 3000:
+        if word_count <= 5000:
             return self._summarize_chunk(text, num_sentences)
         
         print(f"   Long document detected - using chunking strategy")
         return self._summarize_long_document(text, num_sentences)
     
     def _summarize_chunk(self, text, num_sentences=5):
-        """Summarize a single chunk of text"""
+        """Summarize a single chunk of text using Gemini"""
         try:
-            prompt = f"""Summarize the following text as {num_sentences} clean bullet points.
+            from google import genai
+            from google.genai import types
+            
+            client = genai.Client(api_key=self.gemini_api_key)
+            
+            prompt = f"""Read the following text and explain the main ideas in {num_sentences} simple bullet points.
 
-RULES:
-- Use simple words that a 5th grader can understand
-- Keep the original meaning but explain it simply
-- Each bullet point should be ONE complete sentence
+IMPORTANT - Write like you're explaining to a 10-year-old child:
+- Use everyday words that kids understand (avoid technical jargon)
+- Keep sentences SHORT and SIMPLE (maximum 15-20 words per bullet)
+- Explain what things DO, not what they're called
+- If you must use a technical term, explain it in simple words right after
+- Focus on the MAIN IDEAS only - skip minor details
 - Start each line with just a bullet symbol: •
-- Do NOT include titles, headers, or bold text
-- Do NOT use ** or other formatting symbols
+- Do NOT include titles, headers, or bold text (**) 
 - Do NOT write intro text like "Here are the bullet points"
 - Just write the bullet points directly
+
+Example of GOOD simple language:
+✓ "The project helps small factories know when their machines will break before it happens"
+✗ "The project utilizes predictive maintenance algorithms for SME industrial equipment"
+
+Text to summarize:
+{text[:50000]}
+
+Simple summary (write exactly {num_sentences} SHORT, SIMPLE bullet points):"""
+            
+            response = client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.4,
+                    top_p=0.95,
+                    max_output_tokens=4096,
+                )
+            )
+            
+            if response and response.text:
+                summary = response.text.strip()
+                if summary:
+                    summary = self._clean_bullet_format(summary)
+                    return summary
+            
+            return None
+                
+        except ImportError:
+            print("⚠️  google-genai package not installed")
+            print("   Install with: pip install google-genai")
+            print("   Falling back to Ollama (llama3.2)...")
+            return self._summarize_with_ollama(text, num_sentences)
+        except Exception as e:
+            print(f"⚠️  Gemini API error: {e}")
+            print("   Falling back to Ollama (llama3.2)...")
+            return self._summarize_with_ollama(text, num_sentences)
+    
+    def _summarize_with_ollama(self, text, num_sentences=5):
+        """Fallback to Ollama llama3.2 for summarization"""
+        print(f"\n🦙 Using Ollama (llama3.2) for summarization...")
+        
+        try:
+            prompt = f"""Read the following text and explain the main ideas in {num_sentences} simple bullet points.
+
+IMPORTANT - Write like you're explaining to a 10-year-old child:
+- Use everyday words that kids understand (avoid technical jargon)
+- Keep sentences SHORT and SIMPLE (maximum 15-20 words per bullet)
+- Explain what things DO, not what they're called
+- If you must use a technical term, explain it in simple words right after
+- Focus on the MAIN IDEAS only - skip minor details
+- Start each line with just a bullet symbol: •
+- Do NOT include titles, headers, or bold text (**) 
+- Do NOT write intro text like "Here are the bullet points"
+- Just write the bullet points directly
+
+Example of GOOD simple language:
+✓ "The project helps small factories know when their machines will break before it happens"
+✗ "The project utilizes predictive maintenance algorithms for SME industrial equipment"
 
 Text to summarize:
 {text[:12000]}
 
-Summary (write {num_sentences} bullet points, one per line):"""
+Simple summary (write exactly {num_sentences} SHORT, SIMPLE bullet points):"""
             
             response = requests.post(
-                self.ollama_url,
+                "http://localhost:11434/api/generate",
                 json={
-                    "model": self.model,
+                    "model": "llama3.2",
                     "prompt": prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.3,
-                        "top_p": 0.9,
+                        "temperature": 0.4,
+                        "top_p": 0.95,
                     }
                 },
                 timeout=120
@@ -294,24 +436,32 @@ Summary (write {num_sentences} bullet points, one per line):"""
                 summary = result.get('response', '').strip()
                 if summary:
                     summary = self._clean_bullet_format(summary)
+                    print(f"✅ Ollama summary generated successfully")
                     return summary
             
-            return None
+            print("⚠️  Ollama failed, using extractive method...")
+            return self._summarize_extractive(text, num_sentences)
                 
         except Exception as e:
-            print(f"⚠️  Error summarizing chunk: {e}")
-            return None
+            print(f"⚠️  Ollama error: {e}")
+            print("   Using extractive method...")
+            return self._summarize_extractive(text, num_sentences)
     
     def _summarize_long_document(self, text, num_sentences=5):
         """Summarize long documents by chunking and combining"""
         try:
+            from google import genai
+            from google.genai import types
+            
+            client = genai.Client(api_key=self.gemini_api_key)
+            
             chunks = self._split_into_chunks(text, max_words=2000, overlap=300)
             print(f"   Split into {len(chunks)} chunks with overlap")
             
             chunk_summaries = []
             for i, chunk in enumerate(chunks):
                 print(f"   Processing chunk {i+1}/{len(chunks)}...")
-                summary = self._summarize_chunk(chunk, num_sentences=4)
+                summary = self._summarize_chunk(chunk, num_sentences=5)
                 if summary:
                     chunk_summaries.append(summary)
             
@@ -322,43 +472,40 @@ Summary (write {num_sentences} bullet points, one per line):"""
             combined = "\n\n".join(chunk_summaries)
             print(f"   Combining {len(chunk_summaries)} chunk summaries...")
             
-            final_prompt = f"""The following are summaries from different parts of a document. 
-Create a final summary as {num_sentences} clean bullet points that covers ALL the main ideas from ALL sections.
+            final_prompt = f"""Read these summaries from different parts of a document and combine them into {num_sentences} simple bullet points.
 
-RULES:
-- Use simple words that a 5th grader can understand
-- Keep the original meaning but explain it simply
-- Each bullet point should be ONE complete sentence
+IMPORTANT - Write like you're explaining to a 10-year-old child:
+- Use everyday words that kids understand (avoid technical jargon)
+- Keep sentences SHORT and SIMPLE (maximum 15-20 words per bullet)
+- Explain what things DO, not what they're called
+- If you must use a technical term, explain it in simple words right after
+- Cover the MAIN IDEAS from all sections
 - Start each line with just a bullet symbol: •
-- Do NOT include titles, headers, or bold text
-- Do NOT use ** or other formatting symbols
+- Do NOT include titles, headers, or bold text (**)
 - Do NOT write intro text
 - Just write the bullet points directly
-- Make sure to include points from the beginning, middle, AND end of the document
-- Cover all major topics mentioned
+
+Example of GOOD simple language:
+✓ "The project helps small factories know when their machines will break before it happens"
+✗ "The project utilizes predictive maintenance algorithms for SME industrial equipment"
 
 Section summaries:
 {combined}
 
-Final summary (write exactly {num_sentences} bullet points, one per line):"""
+Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points):"""
             
-            response = requests.post(
-                self.ollama_url,
-                json={
-                    "model": self.model,
-                    "prompt": final_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.3,
-                        "top_p": 0.9,
-                    }
-                },
-                timeout=120
+            response = client.models.generate_content(
+                model=self.model,
+                contents=final_prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.4,
+                    top_p=0.95,
+                    max_output_tokens=4096,
+                )
             )
             
-            if response.status_code == 200:
-                result = response.json()
-                summary = result.get('response', '').strip()
+            if response and response.text:
+                summary = response.text.strip()
                 if summary:
                     summary = self._clean_bullet_format(summary)
                     print(f"✅ AI summary generated successfully (from {len(chunks)} chunks)")
@@ -413,14 +560,10 @@ Final summary (write exactly {num_sentences} bullet points, one per line):"""
     def _split_into_chunks(self, text, max_words=2000, overlap=300):
         """Improved chunking with table protection and ASEAN language support"""
         
-        # Detect if text uses non-space-separated language (Chinese, Thai, Khmer, Lao, etc.)
         char_count = len(text)
         word_list = text.split()
         
-        # If word density is very low, likely a non-spaced language
         if char_count > 0 and (len(word_list) / char_count) < 0.15:
-            # Character-based chunking for Asian languages
-            # Approximate: 1 word ≈ 2-3 characters in these languages
             max_limit = max_words * 2
             overlap_limit = overlap * 2
             is_char_mode = True
@@ -430,10 +573,8 @@ Final summary (write exactly {num_sentences} bullet points, one per line):"""
             overlap_limit = overlap
             is_char_mode = False
         
-        # Split by double newlines to preserve paragraph/table structure
         paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
         
-        # Fallback to single newlines if no double newlines found
         if len(paragraphs) < 2:
             paragraphs = [p.strip() for p in text.split('\n') if p.strip()]
         
@@ -442,37 +583,26 @@ Final summary (write exactly {num_sentences} bullet points, one per line):"""
         current_size = 0
         
         for para in paragraphs:
-            # Measure size based on mode
             para_size = len(para) if is_char_mode else len(para.split())
-            
-            # TABLE PROTECTION: Detect markdown tables
             is_table = para.startswith('|') or '|' in para[:50]
             
-            # If adding this paragraph exceeds limit AND we have content
             if current_size + para_size > max_limit and current_chunk:
-                # Special handling for tables
                 if is_table and para_size <= max_limit * 1.5:
-                    # If table fits in 1.5x limit, keep it whole in current chunk
-                    # This prevents breaking tables across chunks
-                    if current_size < max_limit * 0.3:  # Current chunk is small
+                    if current_size < max_limit * 0.3:
                         current_chunk.append(para)
                         current_size += para_size
-                        # Force chunk end after table
                         chunks.append('\n\n'.join(current_chunk))
                         current_chunk = []
                         current_size = 0
                         continue
                 
-                # Save current chunk
                 chunks.append('\n\n'.join(current_chunk))
                 
-                # Create overlap: grab last few paragraphs within overlap budget
                 overlap_paras = []
                 overlap_size = 0
                 for prev_para in reversed(current_chunk):
                     prev_size = len(prev_para) if is_char_mode else len(prev_para.split())
                     
-                    # Don't include tables in overlap (they're usually complete units)
                     if prev_para.startswith('|') or '|' in prev_para[:50]:
                         continue
                     
@@ -482,19 +612,15 @@ Final summary (write exactly {num_sentences} bullet points, one per line):"""
                     else:
                         break
                 
-                # Start new chunk with overlap + current paragraph
                 current_chunk = overlap_paras + [para]
                 current_size = overlap_size + para_size
             else:
-                # Add paragraph to current chunk
                 current_chunk.append(para)
                 current_size += para_size
         
-        # Add final chunk
         if current_chunk:
             chunks.append('\n\n'.join(current_chunk))
         
-        # Fallback: if no chunks created, return whole text
         return chunks if chunks else [text]
     
     def _summarize_extractive(self, text, num_sentences=5):
@@ -562,7 +688,7 @@ Final summary (write exactly {num_sentences} bullet points, one per line):"""
     def process_document(self, file_path, summarize=True, translate=True):
         """Process document: extract, summarize, translate"""
         print("\n" + "=" * 60)
-        print("📄 Document Summarizer (Docling)")
+        print("📄 Document Summarizer (Docling + Gemini)")
         print("=" * 60)
         
         text = self.extract_text_from_document(file_path)
@@ -584,13 +710,15 @@ Final summary (write exactly {num_sentences} bullet points, one per line):"""
             'summary_word_count': len(summary.split()),
         }
     
-    def process_website(self, url, summarize=True, translate=True):
+    def process_website(self, url, summarize=True, translate=True, crawl_depth=0, max_sublinks=3):
         """Process website: extract, summarize, translate"""
         print("\n" + "=" * 60)
-        print("🌐 Website Summarizer")
+        print("🌐 Website Summarizer (Gemini)")
+        if crawl_depth > 0:
+            print(f"   Crawling enabled: depth={crawl_depth}, max_pages={max_sublinks}")
         print("=" * 60)
         
-        text = self.extract_text_from_website(url)
+        text = self.extract_text_from_website(url, crawl_depth=crawl_depth, max_sublinks=max_sublinks)
         if not text:
             return None
         
@@ -614,13 +742,15 @@ Final summary (write exactly {num_sentences} bullet points, one per line):"""
 def main():
     print("=" * 60)
     print("📄 Document & Website Summarizer")
-    print("Docling - Advanced Document Processing")
+    print("Docling + Google Gemini 2.0 Flash")
     print("=" * 60)
     print("\nFeatures:")
     print("  • Automatic mixed-language detection")
     print("  • Complex table recognition")
     print("  • Layout preservation")
     print("  • PDF processing (no image conversion needed!)")
+    print("  • Google Gemini 2.0 Flash for AI summarization")
+    print("  • Ollama llama3.2 fallback")
     
     print("\nWhat would you like to summarize?")
     print("  1 - Document (PDF)")
@@ -657,7 +787,8 @@ def main():
         
     elif choice == "2":
         url = input("\nEnter website URL: ").strip()
-        result = summarizer.process_website(url)
+        # Automatically enable crawling with 3 sublinks
+        result = summarizer.process_website(url, crawl_depth=1, max_sublinks=3)
         
     else:
         print("❌ Invalid choice")

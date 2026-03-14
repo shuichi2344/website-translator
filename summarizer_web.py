@@ -6,7 +6,7 @@ from flask import Flask, render_template_string, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import os
 from dotenv import load_dotenv
-from document_summariser_v6_docling import DocumentSummarizer
+from document_summariser_v6_gemini import DocumentSummarizer
 from pathlib import Path
 
 # Load environment variables
@@ -261,7 +261,7 @@ HTML_TEMPLATE = """
         <div class="header">
             <div class="icon">📄</div>
             <h1>Bridge Document Summarizer</h1>
-            <p class="subtitle">ASEAN Multilingual Document & Website Summarizer with Docling (Advanced Document Processing)</p>
+            <p class="subtitle">ASEAN Multilingual Document & Website Summarizer with Docling + Google Gemini (Advanced AI Processing)</p>
         </div>
         
         <div class="tabs">
@@ -312,6 +312,9 @@ HTML_TEMPLATE = """
                 <div class="form-group">
                     <label for="url">Website URL</label>
                     <input type="url" name="url" id="url" placeholder="https://example.gov.my" required>
+                    <small style="color: #666; display: block; margin-top: 5px;">
+                        ℹ️ Will automatically crawl and summarize 3 additional sublinks
+                    </small>
                 </div>
                 
                 <div class="form-group">
@@ -374,8 +377,8 @@ HTML_TEMPLATE = """
         <div class="note">
             <strong>📝 Note:</strong><br>
             • Maximum file size: 50MB<br>
-            • Docling - Advanced document processing with automatic language detection<br>
-            • Complex table recognition and layout preservation<br>
+            • Docling + Google Gemini 2.0 Flash - Advanced AI summarization<br>
+            • Automatic language detection and complex table recognition<br>
             • Supports PDF and images (PNG, JPG, JPEG, BMP, TIFF)<br>
             • Website summarization extracts main content<br>
             • GPU acceleration for faster processing
@@ -390,6 +393,10 @@ HTML_TEMPLATE = """
             event.target.classList.add('active');
             document.getElementById(tab + '-tab').classList.add('active');
             document.getElementById('result').classList.remove('show');
+        }
+        
+        function toggleCrawlOptions() {
+            // No longer needed - crawling is always enabled
         }
         
         document.getElementById('file').addEventListener('change', function() {
@@ -436,6 +443,11 @@ HTML_TEMPLATE = """
             event.preventDefault();
             
             const formData = new FormData(event.target);
+            
+            // Automatically enable crawling with 3 sublinks
+            formData.append('crawl_depth', '1');
+            formData.append('max_sublinks', '3');
+            
             const btn = document.getElementById('webBtn');
             const loading = document.getElementById('loading');
             const result = document.getElementById('result');
@@ -577,13 +589,15 @@ def summarize_website():
     try:
         url = request.form.get('url')
         target_lang = request.form.get('target_lang', 'en')
+        crawl_depth = int(request.form.get('crawl_depth', 0))
+        max_sublinks = int(request.form.get('max_sublinks', 3))
         
         if not url:
             return jsonify({'success': False, 'error': 'No URL provided'})
         
         # Process
         summarizer = DocumentSummarizer(target_lang=target_lang)
-        result = summarizer.process_website(url)
+        result = summarizer.process_website(url, crawl_depth=crawl_depth, max_sublinks=max_sublinks)
         
         if result:
             return jsonify({
@@ -630,11 +644,11 @@ def qa_website():
 if __name__ == '__main__':
     print("=" * 60)
     print("🌐 Bridge Document Summarizer - Web Interface")
-    print("Docling - Advanced Document Processing")
+    print("Docling + Google Gemini 2.0 Flash")
     print("=" * 60)
     print("\n✅ Server starting...")
     print("📱 Open your browser and go to: http://localhost:5000")
     print("\n💡 Press Ctrl+C to stop the server\n")
     print("=" * 60)
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=False, host='0.0.0.0', port=5000)
