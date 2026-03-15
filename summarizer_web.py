@@ -299,9 +299,17 @@ HTML_TEMPLATE = """
                         <option value="lo">Lao</option>
                     </select>
                 </div>
+
+                <div class="form-group">
+                    <label for="doc_question">Ask a question about this document (RAG)</label>
+                    <input type="text" name="question" id="doc_question" placeholder="e.g. What are the main findings?">
+                </div>
                 
                 <button type="submit" class="btn" id="docBtn">
                     📝 Summarize Document
+                </button>
+                <button type="button" class="btn" style="margin-top: 10px;" id="docQaBtn" onclick="askDocumentQuestion()">
+                    ❓ Ask Question about Document
                 </button>
             </form>
         </div>
@@ -378,10 +386,11 @@ HTML_TEMPLATE = """
             <strong>📝 Note:</strong><br>
             • Maximum file size: 50MB<br>
             • Docling + Google Gemini 2.0 Flash - Advanced AI summarization<br>
+            • RAG Q&A: Ask specific questions about documents or websites<br>
             • Automatic language detection and complex table recognition<br>
             • Supports PDF and images (PNG, JPG, JPEG, BMP, TIFF)<br>
-            • Website summarization extracts main content<br>
-            • GPU acceleration for faster processing
+            • Website summarization extracts main content and crawls 3 sublinks<br>
+            • Embeddings cached in ChromaDB for fast repeated queries
         </div>
     </div>
     
@@ -527,6 +536,57 @@ HTML_TEMPLATE = """
                 loading.style.display = 'none';
             }
         }
+
+        async function askDocumentQuestion() {
+            const fileInput = document.getElementById('file');
+            const questionInput = document.getElementById('doc_question');
+            const langSelect = document.getElementById('doc_lang');
+            const btn = document.getElementById('docQaBtn');
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+
+            const file = fileInput.files[0];
+            const question = questionInput.value.trim();
+            const targetLang = langSelect.value || 'en';
+
+            if (!file) {
+                alert('Please select a document file.');
+                return;
+            }
+            if (!question) {
+                alert('Please enter a question about the document.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('question', question);
+            formData.append('target_lang', targetLang);
+
+            btn.disabled = true;
+            loading.style.display = 'block';
+            result.classList.remove('show');
+
+            try {
+                const response = await fetch('/qa/document', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showResult(data);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                loading.style.display = 'none';
+            }
+        }
         
         function showResult(data) {
             document.getElementById('originalWords').textContent = data.word_count;
@@ -638,6 +698,48 @@ def qa_website():
         else:
             return jsonify({'success': False, 'error': 'Failed to answer question for website'})
 
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/qa/document', methods=['POST'])
+def qa_document():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'})
+        
+        file = request.files['file']
+        question = request.form.get('question', '').strip()
+        target_lang = request.form.get('target_lang', 'en')
+        
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'})
+        
+        if not question:
+            return jsonify({'success': False, 'error': 'No question provided'})
+        
+        # Save file
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        
+        # Process with RAG Q&A
+        summarizer = DocumentSummarizer(target_lang=target_lang)
+        result = summarizer.rag_qa_document(filepath, question)
+        
+        # Clean up
+        os.remove(filepath)
+        
+        if result:
+            return jsonify({
+                'success': True,
+                'summary': result['summary'],
+                'word_count': result['word_count'],
+                'summary_word_count': result['summary_word_count'],
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to answer question for document'})
+            
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 

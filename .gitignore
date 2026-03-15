@@ -1,4 +1,6 @@
+# ============================================
 # Python
+# ============================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -20,56 +22,113 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
 
+# ============================================
 # Virtual Environment
+# ============================================
 venv/
 env/
 ENV/
-.venv
 .venv/
+.venv
+env.bak/
+venv.bak/
 
-# IDE
+# ============================================
+# IDE & Editors
+# ============================================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .kiro/
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/
 
-# OS
+# ============================================
+# OS Specific
+# ============================================
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
 Thumbs.db
-desktop.ini
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
 *.lnk
 
-# Environment variables & API keys
+# Linux
+*~
+.directory
+.fuse_hidden*
+
+# ============================================
+# Environment Variables & API Keys
+# ============================================
 .env
 *.env
+.env.local
+.env.*.local
 !.env.example
+!.env.template
 
+# ============================================
 # Flask
+# ============================================
 instance/
 .webassets-cache
+flask_session/
 
-# Uploads & Temporary files
+# ============================================
+# Uploads & Temporary Files
+# ============================================
 uploads/
+uploads/*
+!uploads/.gitkeep
 *.tmp
 *.bak
+*.swp
 *.log
+temp/
+tmp/
 
-# Project specific
+# ============================================
+# Project Specific
+# ============================================
+# Translation cache
 translation_cache.json
+
+# Browser drivers
 chromedriver.exe
 geckodriver.exe
+chromedriver
+geckodriver
 
 # Selenium
 *.crx
 
-# Test files
-test_*.py
-*_test.py
+# ============================================
+# Testing
+# ============================================
+# Test files (keep test scripts, ignore test outputs)
+test_output/
+test_results/
 pytest_cache/
 .pytest_cache/
+.tox/
+.nox/
 
 # Coverage
 htmlcov/
@@ -77,64 +136,204 @@ htmlcov/
 .coverage.*
 coverage.xml
 *.cover
+.hypothesis/
 
-# Documentation builds
+# ============================================
+# Documentation Builds
+# ============================================
 docs/_build/
 site/
+_build/
+.doctrees/
 
+# ============================================
 # Jupyter Notebook
+# ============================================
 .ipynb_checkpoints
+*.ipynb_checkpoints/
 
-# pyenv
+# ============================================
+# Python Version Management
+# ============================================
 .python-version
+.pyenv
 
-# Compiled files
+# ============================================
+# Compiled Files
+# ============================================
 *.pyc
 *.pyo
 *.pyd
+*.dll
+*.exe
+*.o
+*.obj
 
-# Database
+# ============================================
+# Database Files
+# ============================================
 *.db
 *.sqlite
 *.sqlite3
+!chroma.sqlite3
 
+# ============================================
 # Logs
+# ============================================
 logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# Linux
-*~
-.directory
-
-# Browser extension (keep source, ignore builds)
+# ============================================
+# Browser Extension
+# ============================================
+# Keep source files, ignore builds
 browser-extension/*.zip
 browser-extension/*.crx
 browser-extension/*.xpi
+browser-extension/dist/
+browser-extension/build/
 
+# ============================================
+# AI & ML Specific
+# ============================================
 # Docling cache
 .docling_cache/
+.docling/
 
-# AI model cache
+# ChromaDB vector database
+chroma_db/
+chroma_db/*
+!chroma_db/.gitkeep
+
+# Hugging Face cache
 .cache/
-models/
+.huggingface/
+transformers_cache/
 
-# Large files
+# Model files
+models/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.h5
+*.onnx
+
+# ============================================
+# Large Files & Archives
+# ============================================
 *.pdf
 *.zip
 *.tar.gz
 *.rar
+*.7z
+*.tar
+*.gz
+*.bz2
 
-# Keep example files
+# Keep example/sample files
 !example.pdf
 !sample.pdf
+!docs/*.pdf
+
+# ============================================
+# Media Files
+# ============================================
+# Images (keep icons)
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.ico
+!browser-extension/icons/*.png
+!static/icons/*.png
+!docs/images/*.png
+!docs/images/*.jpg
+
+# Videos
+*.mp4
+*.avi
+*.mov
+*.wmv
+
+# Audio
+*.mp3
+*.wav
+*.flac
+
+# ============================================
+# Backup Files
+# ============================================
+*.backup
+*.old
+*_backup
+*_old
+*.orig
+
+# ============================================
+# Node.js (if used for any tooling)
+# ============================================
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# ============================================
+# Miscellaneous
+# ============================================
+# Secrets
+secrets/
+*.key
+*.pem
+*.cert
+
+# Data files
+data/
+*.csv
+*.json
+!package.json
+!manifest.json
+!*.config.json
+
+# Compiled documentation
+*.pdf
+!docs/*.pdf
+
+# System files
+.Trash-*
+.nfs*
+
+# ============================================
+# Keep These Files
+# ============================================
+# Documentation
+!README.md
+!CHROMADB_GUIDE.md
+!HUGGINGFACE_SETUP.md
+!CHROMADB_FIX_SUMMARY.md
+!IMPROVEMENTS_LOG.md
+!RAG_EMBEDDINGS_INFO.md
+!RAG_QA_GUIDE.md
+!browser-extension/*.md
+
+# Configuration examples
+!.env.example
+!config.example.json
+
+# Test scripts (keep the scripts, not outputs)
+!test_*.py
+!*_test.py
+
+# Static assets
+!static/**
+!browser-extension/**
+
+# Keep empty directories
+!.gitkeep

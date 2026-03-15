@@ -11,7 +11,6 @@ import requests
 from pathlib import Path
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
-from langdetect import detect_langs
 from dotenv import load_dotenv
 
 warnings.filterwarnings('ignore')
@@ -19,11 +18,26 @@ load_dotenv()
 
 
 class DocumentSummarizer:
-    def __init__(self, target_lang='en', use_ai=True, model='gemini-3-flash-preview'):
+    def __init__(self, target_lang='en', use_ai=True, model='gemini-3-flash-preview', use_embeddings=True, use_vector_db=True):
         self.target_lang = target_lang
         self.use_ai = use_ai
         self.model = model
+        self.use_embeddings = use_embeddings
+        self.use_vector_db = use_vector_db
         self.gemini_api_key = os.getenv('GEMINI_API_KEY')
+        
+        # Initialize embedding model for RAG
+        self.embedding_model = None
+        self.chroma_client = None
+        self.collection = None
+        
+        if self.use_embeddings:
+            print("🔄 Initializing EmbeddingGemma-300M...")
+            self._init_embeddings()
+            
+            if self.use_vector_db:
+                print("🔄 Initializing ChromaDB vector database...")
+                self._init_vector_db()
         
         # Initialize Docling with optimized settings
         print("🔄 Initializing Docling...")
@@ -31,6 +45,191 @@ class DocumentSummarizer:
         
         if self.use_ai:
             self._check_gemini()
+    
+    def _init_vector_db(self):
+        """Initialize ChromaDB for persistent vector storage"""
+        try:
+            import chromadb
+            from chromadb.config import Settings
+            import hashlib
+            
+            # Create persistent ChromaDB client
+            self.chroma_client = chromadb.PersistentClient(
+                path="./chroma_db",
+                settings=Settings(
+                    anonymized_telemetry=False,
+                    allow_reset=True
+                )
+            )
+            
+            # Create or get collection for document chunks
+            self.collection = self.chroma_client.get_or_create_collection(
+                name="document_chunks",
+                metadata={"description": "Document chunks with EmbeddingGemma embeddings"}
+            )
+            
+            print("✅ ChromaDB initialized successfully")
+            print(f"   • Database path: ./chroma_db")
+            print(f"   • Collection: document_chunks")
+            print(f"   • Stored embeddings: {self.collection.count()}")
+            
+        except ImportError:
+            print("⚠️  chromadb not installed")
+            print("   Install with: pip install chromadb")
+            print("   Continuing without vector database...")
+            self.use_vector_db = False
+        except Exception as e:
+            print(f"⚠️  Failed to initialize ChromaDB: {e}")
+            print("   Continuing without vector database...")
+            self.use_vector_db = False
+    
+    def _check_existing_embeddings(self, doc_id):
+        """Check if embeddings for this document already exist in ChromaDB"""
+        if not self.use_vector_db or not self.collection:
+            return False
+        
+        try:
+            # Query for any chunks with this doc_id
+            results = self.collection.get(
+                where={"doc_id": doc_id},
+                limit=1
+            )
+            
+            if results and results['ids']:
+                print(f"   ✅ Found existing embeddings for doc_id: {doc_id[:8]}...")
+                print(f"   💾 Skipping re-embedding (using cached embeddings)")
+                return True
+            
+        except Exception as e:
+            print(f"   ⚠️  Error checking existing embeddings: {e}")
+        
+        return False
+    
+    def _get_chunks_from_db(self, doc_id):
+        """Retrieve all chunks for a document from ChromaDB"""
+        if not self.use_vector_db or not self.collection:
+            return None
+        
+        try:
+            results = self.collection.get(
+                where={"doc_id": doc_id},
+                include=["documents", "embeddings", "metadatas"]
+            )
+            
+            if results and results['documents']:
+                # Sort by chunk_index to maintain order
+                sorted_data = sorted(
+                    zip(results['documents'], results['embeddings'], results['metadatas']),
+                    key=lambda x: x[2]['chunk_index']
+                )
+                
+                chunks = [item[0] for item in sorted_data]
+                embeddings = [item[1] for item in sorted_data]
+                
+                print(f"   📥 Retrieved {len(chunks)} chunks from ChromaDB")
+                return chunks, embeddings
+            
+        except Exception as e:
+            print(f"   ⚠️  Error retrieving chunks from DB: {e}")
+        
+        return None
+    
+    def _get_document_id(self, text):
+        """Generate unique document ID using MD5 hash"""
+        import hashlib
+        # Use first 10000 chars to generate ID (enough to be unique)
+        sample = text[:10000] if len(text) > 10000 else text
+        return hashlib.md5(sample.encode('utf-8')).hexdigest()
+    
+    def _store_chunks_in_db(self, chunks, embeddings, doc_id):
+        """Store chunks and embeddings in ChromaDB"""
+        if not self.use_vector_db or not self.collection:
+            return
+        
+        try:
+            # Prepare data for ChromaDB
+            ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
+            metadatas = [{"chunk_index": i, "doc_id": doc_id} for i in range(len(chunks))]
+            
+            # Add to collection
+            self.collection.add(
+                ids=ids,
+                embeddings=embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings,
+                documents=chunks,
+                metadatas=metadatas
+            )
+            
+            print(f"   💾 Stored {len(chunks)} chunks in ChromaDB")
+            
+        except Exception as e:
+            print(f"   ⚠️  Failed to store in ChromaDB: {e}")
+    
+    def _query_vector_db(self, query_embedding, n_results=10):
+        """Query ChromaDB for most similar chunks"""
+        if not self.use_vector_db or not self.collection:
+            return None
+        
+        try:
+            results = self.collection.query(
+                query_embeddings=[query_embedding.tolist() if hasattr(query_embedding, 'tolist') else query_embedding],
+                n_results=min(n_results, self.collection.count())
+            )
+            
+            if results and results['documents']:
+                print(f"   🔍 Retrieved {len(results['documents'][0])} chunks from ChromaDB")
+                return {
+                    'documents': results['documents'][0],
+                    'distances': results['distances'][0],
+                    'metadatas': results['metadatas'][0]
+                }
+            
+        except Exception as e:
+            print(f"   ⚠️  ChromaDB query failed: {e}")
+        
+        return None
+    
+    def _init_embeddings(self):
+        """Initialize EmbeddingGemma-300M for semantic search and RAG"""
+        try:
+            from sentence_transformers import SentenceTransformer
+            import os
+            
+            # Get Hugging Face token from environment
+            hf_token = os.getenv('HUGGINGFACE_TOKEN')
+            
+            if hf_token and hf_token != 'your-huggingface-token-here':
+                # Login to Hugging Face
+                try:
+                    from huggingface_hub import login
+                    login(token=hf_token, add_to_git_credential=False)
+                    print("✅ Logged in to Hugging Face")
+                except:
+                    pass
+            
+            self.embedding_model = SentenceTransformer("google/embeddinggemma-300m")
+            print("✅ EmbeddingGemma-300M initialized successfully")
+            print("   • 300M parameters, 768-dimensional embeddings")
+            print("   • Optimized for semantic search and retrieval")
+            print("   • Supports 100+ languages including all ASEAN languages")
+            
+        except ImportError:
+            print("⚠️  sentence-transformers not installed")
+            print("   Install with: pip install sentence-transformers")
+            print("   Continuing without embedding-based RAG...")
+            self.use_embeddings = False
+        except Exception as e:
+            error_msg = str(e)
+            if "gated repo" in error_msg or "401" in error_msg:
+                print(f"⚠️  EmbeddingGemma requires Hugging Face authentication")
+                print("   1. Go to: https://huggingface.co/google/embeddinggemma-300m")
+                print("   2. Click 'Agree and access repository'")
+                print("   3. Get token from: https://huggingface.co/settings/tokens")
+                print("   4. Add to .env: HUGGINGFACE_TOKEN='your-token-here'")
+                print("   Continuing without embedding-based RAG...")
+            else:
+                print(f"⚠️  Failed to load EmbeddingGemma: {e}")
+                print("   Continuing without embedding-based RAG...")
+            self.use_embeddings = False
     
     def _init_docling(self):
         """Initialize Docling with optimized settings for mixed-language support"""
@@ -116,30 +315,6 @@ class DocumentSummarizer:
             
             # Also get plain text for language detection
             plain_text = result.document.export_to_text()
-            
-            # Language Detection
-            print("\n🌍 Detected Languages:")
-            try:
-                detections = detect_langs(plain_text[:3000])
-                for lang in detections:
-                    names = {
-                        'en': 'English',
-                        'ms': 'Malay',
-                        'id': 'Indonesian', 
-                        'vi': 'Vietnamese',
-                        'th': 'Thai',
-                        'zh-cn': 'Chinese (Simplified)',
-                        'zh-tw': 'Chinese (Traditional)',
-                        'ta': 'Tamil',
-                        'my': 'Burmese/Myanmar',
-                        'km': 'Khmer',
-                        'lo': 'Lao',
-                        'tl': 'Tagalog/Filipino'
-                    }
-                    full_name = names.get(lang.lang, lang.lang.upper())
-                    print(f"   • {full_name}: {lang.prob*100:.1f}% confidence")
-            except:
-                print("   ⚠️ Could not determine specific languages.")
             
             # Show document statistics
             print(f"\n📊 Document Statistics:")
@@ -326,6 +501,17 @@ class DocumentSummarizer:
         word_count = len(text.split())
         print(f"   Document length: {word_count} words")
         
+        # Always create embeddings if enabled (for caching and Q&A)
+        if self.use_embeddings and self.use_vector_db:
+            doc_id = self._get_document_id(text)
+            
+            # Check if embeddings already exist
+            if not self._check_existing_embeddings(doc_id):
+                # Create and store embeddings even for short documents
+                chunks = self._split_into_chunks(text, max_words=2000, overlap=300)
+                print(f"   📦 Creating embeddings for {len(chunks)} chunk(s) (for caching)...")
+                self._embed_chunks(chunks, doc_id=doc_id)
+        
         if word_count <= 5000:
             return self._summarize_chunk(text, num_sentences)
         
@@ -447,21 +633,115 @@ Simple summary (write exactly {num_sentences} SHORT, SIMPLE bullet points):"""
             print("   Using extractive method...")
             return self._summarize_extractive(text, num_sentences)
     
+    def _embed_chunks(self, chunks, doc_id=None):
+        """Create embeddings for text chunks using EmbeddingGemma and store in ChromaDB"""
+        if not self.use_embeddings or not self.embedding_model:
+            return None
+        
+        try:
+            print(f"   🔮 Creating embeddings for {len(chunks)} chunks...")
+            # Use document prompt for better retrieval
+            embeddings = self.embedding_model.encode(
+                chunks,
+                prompt_name="Retrieval-document",
+                show_progress_bar=False
+            )
+            print(f"   ✅ Generated {len(embeddings)} embeddings (768-dim)")
+            
+            # Store in ChromaDB if enabled
+            if self.use_vector_db and doc_id:
+                self._store_chunks_in_db(chunks, embeddings, doc_id)
+            
+            return embeddings
+        except Exception as e:
+            print(f"   ⚠️  Embedding generation failed: {e}")
+            return None
+    
+    def _rank_chunks_by_relevance(self, chunks, embeddings, query="summarize this document", use_db=True):
+        """Rank chunks by semantic relevance using ChromaDB or in-memory similarity"""
+        if not self.use_embeddings or not self.embedding_model:
+            return list(range(len(chunks)))  # Return original order
+        
+        try:
+            print(f"   🔍 Ranking chunks by relevance to: '{query}'")
+            
+            # Create query embedding
+            query_embedding = self.embedding_model.encode(
+                query,
+                prompt_name="Retrieval-query",
+                show_progress_bar=False
+            )
+            
+            # Try ChromaDB first if enabled
+            if use_db and self.use_vector_db and self.collection and self.collection.count() > 0:
+                results = self._query_vector_db(query_embedding, n_results=len(chunks))
+                if results:
+                    # Map retrieved documents back to original chunk indices
+                    retrieved_docs = results['documents']
+                    ranked_indices = []
+                    for doc in retrieved_docs:
+                        try:
+                            idx = chunks.index(doc)
+                            if idx not in ranked_indices:
+                                ranked_indices.append(idx)
+                        except ValueError:
+                            continue
+                    
+                    # Add any missing indices at the end
+                    for i in range(len(chunks)):
+                        if i not in ranked_indices:
+                            ranked_indices.append(i)
+                    
+                    print(f"   ✅ Chunks ranked using ChromaDB")
+                    return ranked_indices
+            
+            # Fallback to in-memory similarity calculation
+            if embeddings is not None:
+                similarities = self.embedding_model.similarity(query_embedding, embeddings)
+                ranked_indices = similarities[0].argsort(descending=True).tolist()
+                print(f"   ✅ Chunks ranked by semantic similarity (in-memory)")
+                return ranked_indices
+            
+        except Exception as e:
+            print(f"   ⚠️  Ranking failed: {e}")
+        
+        return list(range(len(chunks)))
+    
     def _summarize_long_document(self, text, num_sentences=5):
-        """Summarize long documents by chunking and combining"""
+        """Summarize long documents using Map-Reduce: summarize all chunks, then combine"""
         try:
             from google import genai
             from google.genai import types
             
             client = genai.Client(api_key=self.gemini_api_key)
             
-            chunks = self._split_into_chunks(text, max_words=2000, overlap=300)
-            print(f"   Split into {len(chunks)} chunks with overlap")
+            # Generate document ID
+            doc_id = self._get_document_id(text)
             
+            # Check if we already have embeddings for this document
+            if self._check_existing_embeddings(doc_id):
+                # Retrieve cached chunks and embeddings
+                cached_data = self._get_chunks_from_db(doc_id)
+                if cached_data:
+                    chunks, embeddings = cached_data
+                    print(f"   ♻️  Using {len(chunks)} cached chunks (no re-processing needed)")
+                else:
+                    # Fallback: create new chunks
+                    chunks = self._split_into_chunks(text, max_words=2000, overlap=300)
+                    embeddings = self._embed_chunks(chunks, doc_id=doc_id)
+            else:
+                # New document: create chunks and embeddings
+                chunks = self._split_into_chunks(text, max_words=2000, overlap=300)
+                print(f"   Split into {len(chunks)} chunks with overlap")
+                embeddings = self._embed_chunks(chunks, doc_id=doc_id)
+            
+            # MAP PHASE: Summarize ALL chunks (not just top 10)
+            print(f"   📊 MAP PHASE: Summarizing all {len(chunks)} chunks...")
             chunk_summaries = []
+            
             for i, chunk in enumerate(chunks):
                 print(f"   Processing chunk {i+1}/{len(chunks)}...")
-                summary = self._summarize_chunk(chunk, num_sentences=5)
+                summary = self._summarize_chunk(chunk, num_sentences=3)  # Shorter summaries per chunk
                 if summary:
                     chunk_summaries.append(summary)
             
@@ -469,8 +749,9 @@ Simple summary (write exactly {num_sentences} SHORT, SIMPLE bullet points):"""
                 print("⚠️  No chunk summaries generated, falling back")
                 return self._summarize_extractive(text, num_sentences)
             
+            # REDUCE PHASE: Combine all chunk summaries into final summary
+            print(f"   🔄 REDUCE PHASE: Combining {len(chunk_summaries)} summaries...")
             combined = "\n\n".join(chunk_summaries)
-            print(f"   Combining {len(chunk_summaries)} chunk summaries...")
             
             final_prompt = f"""Read these summaries from different parts of a document and combine them into {num_sentences} simple bullet points.
 
@@ -713,9 +994,13 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
     def process_website(self, url, summarize=True, translate=True, crawl_depth=0, max_sublinks=3):
         """Process website: extract, summarize, translate"""
         print("\n" + "=" * 60)
-        print("🌐 Website Summarizer (Gemini)")
+        print("🌐 Website Summarizer (ChromaDB + Gemini + EmbeddingGemma)")
         if crawl_depth > 0:
             print(f"   Crawling enabled: depth={crawl_depth}, max_pages={max_sublinks}")
+        if self.use_embeddings:
+            print(f"   RAG enabled: Using semantic search for better summaries")
+        if self.use_vector_db:
+            print(f"   Vector DB: ChromaDB for persistent embeddings")
         print("=" * 60)
         
         text = self.extract_text_from_website(url, crawl_depth=crawl_depth, max_sublinks=max_sublinks)
@@ -737,6 +1022,132 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
             'summary_word_count': len(summary.split()),
             'url': url,
         }
+    
+    def rag_qa(self, text, question, source_type="text", source_path=None):
+        """
+        Universal RAG Q&A function for documents, websites, or raw text
+        
+        Args:
+            text: The text content to query
+            question: The question to answer
+            source_type: "document", "website", or "text"
+            source_path: Original file path or URL (optional)
+        """
+        print("\n" + "=" * 60)
+        print("❓ RAG Q&A (ChromaDB + EmbeddingGemma + Gemini)")
+        print(f"   Source: {source_type}")
+        if source_path:
+            print(f"   Path: {source_path}")
+        print(f"   Question: {question}")
+        print("=" * 60)
+        
+        if not text:
+            return None
+        
+        # Generate document ID
+        doc_id = self._get_document_id(text)
+        
+        # Check if we already have embeddings
+        if self._check_existing_embeddings(doc_id):
+            cached_data = self._get_chunks_from_db(doc_id)
+            if cached_data:
+                chunks, embeddings = cached_data
+                print(f"   ♻️  Using {len(chunks)} cached chunks")
+            else:
+                chunks = self._split_into_chunks(text, max_words=1000, overlap=200)
+                embeddings = self._embed_chunks(chunks, doc_id=doc_id)
+        else:
+            # Split into chunks
+            chunks = self._split_into_chunks(text, max_words=1000, overlap=200)
+            print(f"   Split into {len(chunks)} chunks")
+            embeddings = self._embed_chunks(chunks, doc_id=doc_id)
+        
+        # Rank by relevance to question (uses ChromaDB if available)
+        # For Q&A, we DO want to use semantic ranking to find relevant chunks
+        ranked_indices = self._rank_chunks_by_relevance(
+            chunks, 
+            embeddings, 
+            query=question,
+            use_db=True
+        )
+        
+        # Get top 3 most relevant chunks
+        top_chunks = [chunks[i] for i in ranked_indices[:3]]
+        context = "\n\n".join(top_chunks)
+        
+        print(f"   Using top 3 most relevant chunks as context")
+        
+        # Generate answer using Gemini
+        try:
+            from google import genai
+            from google.genai import types
+            
+            client = genai.Client(api_key=self.gemini_api_key)
+            
+            prompt = f"""Answer the following question based on the provided context. Use simple language that a 10-year-old can understand.
+
+Question: {question}
+
+Context:
+{context[:8000]}
+
+Answer (in simple, clear language):"""
+            
+            response = client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.3,
+                    top_p=0.95,
+                    max_output_tokens=2048,
+                )
+            )
+            
+            if response and response.text:
+                answer = response.text.strip()
+                print(f"✅ Answer generated successfully")
+                
+                result = {
+                    'original_text': text,
+                    'summary': answer,
+                    'word_count': len(text.split()),
+                    'summary_word_count': len(answer.split()),
+                    'question': question,
+                    'source_type': source_type,
+                }
+                
+                if source_path:
+                    result['source_path'] = source_path
+                
+                return result
+            
+        except Exception as e:
+            print(f"❌ Error generating answer: {e}")
+            return None
+    
+    def rag_qa_document(self, file_path, question):
+        """Answer questions about a document using RAG with ChromaDB"""
+        print(f"📄 Processing Document: {file_path}")
+        
+        # Extract text from document
+        text = self.extract_text_from_document(file_path)
+        if not text:
+            return None
+        
+        # Use unified RAG Q&A function
+        return self.rag_qa(text, question, source_type="document", source_path=file_path)
+    
+    def rag_qa_website(self, url, question):
+        """Answer questions about a website using RAG with ChromaDB (uses semantic ranking)"""
+        print(f"🌐 Fetching website: {url}")
+        
+        # Extract website content
+        text = self.extract_text_from_website(url, crawl_depth=1, max_sublinks=3)
+        if not text:
+            return None
+        
+        # Use unified RAG Q&A function
+        return self.rag_qa(text, question, source_type="website", source_path=url)
 
 
 def main():
