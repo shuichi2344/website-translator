@@ -2,12 +2,24 @@
 Document & Website Summarizer - Web Interface
 """
 
+import sys
 from flask import Flask, render_template_string, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import os
 from dotenv import load_dotenv
 from document_summariser_v6_gemini import DocumentSummarizer
 from pathlib import Path
+from speech_to_text import transcribe_audio
+
+# Windows consoles are often cp1252, which crashes on emoji output from dependencies.
+# Make stdout/stderr Unicode-safe by replacing unencodable characters.
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 # Load environment variables
 load_dotenv()
@@ -254,7 +266,41 @@ HTML_TEMPLATE = """
             font-size: 13px;
             color: #856404;
         }
+        .mic-btn {
+            padding: 0 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px; /* Matches the icon sizing of your other buttons */
+        }
+
+        .mic-btn:hover {
+            box-shadow: 0 5px 15px rgba(118, 75, 162, 0.3);
+        }
+
+        .mic-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Optional: Red Pulse when active */
+        .mic-btn.recording {
+            background: linear-gradient(135deg, #ff4b2b 0%, #ff416c 100%);
+            animation: mic-pulse 1.5s infinite;
+        }
+
+        @keyframes mic-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 75, 43, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 75, 43, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 75, 43, 0); }
+        }
     </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
@@ -301,8 +347,17 @@ HTML_TEMPLATE = """
                 </div>
 
                 <div class="form-group">
-                    <label for="doc_question">Ask a question about this document (RAG)</label>
-                    <input type="text" name="question" id="doc_question" placeholder="e.g. What are the main findings?">
+                    <label for="doc_question" style="display: block; margin-bottom: 8px;">Ask a question about this document (RAG)</label>
+                    <div style="display: flex; gap: 10px; align-items: stretch;">
+                        <input type="text" name="question" id="doc_question"
+                            placeholder="e.g. What are the main findings?"
+                            style="flex-grow: 1; padding: 12px; border: 2px solid #e0e0e0; border-radius: 10px;">
+                        
+                        <button type="button" class="mic-btn" id="doc_mic_btn"
+                                style="padding: 0 40px; cursor: pointer; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; transition: transform 0.2s;">
+                            <i class="fas fa-microphone"></i>
+                        </button>
+                    </div>
                 </div>
                 
                 <button type="submit" class="btn" id="docBtn">
@@ -344,8 +399,17 @@ HTML_TEMPLATE = """
                 </div>
 
                 <div class="form-group">
-                    <label for="question">Ask a question about this website (RAG)</label>
-                    <input type="text" name="question" id="question" placeholder="e.g. What are the key eligibility requirements?">
+                    <label for="question" style="display: block; margin-bottom: 8px;">Ask a question about this website (RAG)</label>
+                    <div style="display: flex; gap: 10px; align-items: stretch;">
+                        <input type="text" name="question" id="question"
+                            placeholder="e.g. What are the main findings?"
+                            style="flex-grow: 1; padding: 12px; border: 2px solid #e0e0e0; border-radius: 10px;">
+                        
+                        <button type="button" class="mic-btn" id="web_mic_btn"
+                                style="padding: 0 40px; cursor: pointer; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; transition: transform 0.2s;">
+                            <i class="fas fa-microphone"></i>
+                        </button>
+                    </div>
                 </div>
                 
                 <button type="submit" class="btn" id="webBtn">
@@ -598,6 +662,234 @@ HTML_TEMPLATE = """
             document.getElementById('summaryText').textContent = data.summary;
             document.getElementById('result').classList.add('show');
         }
+
+        let mediaRecorder;
+        let audioChunks = [];
+
+        let activeMicBtn = null;
+        let activeQuestionInput = null;
+        let audioContext;
+        let mediaStream;
+        let sourceNode;
+        let processorNode;
+        let recordedBuffers = [];
+        let recordingSampleRate = 48000;
+
+        async function startRecording(targetBtn, targetInput) {
+            try {
+                activeMicBtn = targetBtn || null;
+                activeQuestionInput = targetInput || null;
+
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                recordingSampleRate = audioContext.sampleRate;
+                recordedBuffers = [];
+
+                sourceNode = audioContext.createMediaStreamSource(mediaStream);
+                // ScriptProcessor is deprecated but widely supported and simplest here
+                processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+
+                processorNode.onaudioprocess = (e) => {
+                    const input = e.inputBuffer.getChannelData(0);
+                    recordedBuffers.push(new Float32Array(input));
+                };
+
+                sourceNode.connect(processorNode);
+                processorNode.connect(audioContext.destination);
+
+                if (activeMicBtn) activeMicBtn.classList.add('recording');
+                console.log("Recording started...");
+            } catch (err) {
+                console.error("Mic access denied:", err);
+                alert("Mic access denied: " + (err?.message || err));
+            }
+        }
+
+        function _flattenFloat32(buffers) {
+            let total = 0;
+            for (const b of buffers) total += b.length;
+            const out = new Float32Array(total);
+            let offset = 0;
+            for (const b of buffers) {
+                out.set(b, offset);
+                offset += b.length;
+            }
+            return out;
+        }
+
+        function _resampleLinearFloat32(input, srcRate, dstRate) {
+            if (srcRate === dstRate) return input;
+            const ratio = dstRate / srcRate;
+            const newLength = Math.max(1, Math.round(input.length * ratio));
+            const output = new Float32Array(newLength);
+            const scale = (input.length - 1) / (newLength - 1);
+            for (let i = 0; i < newLength; i++) {
+                const idx = i * scale;
+                const idx0 = Math.floor(idx);
+                const idx1 = Math.min(idx0 + 1, input.length - 1);
+                const frac = idx - idx0;
+                output[i] = input[idx0] * (1 - frac) + input[idx1] * frac;
+            }
+            return output;
+        }
+
+        function _encodeWavMono16(samplesFloat32, sampleRate) {
+            const buffer = new ArrayBuffer(44 + samplesFloat32.length * 2);
+            const view = new DataView(buffer);
+
+            function writeString(offset, str) {
+                for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+            }
+
+            // RIFF header
+            writeString(0, "RIFF");
+            view.setUint32(4, 36 + samplesFloat32.length * 2, true);
+            writeString(8, "WAVE");
+
+            // fmt chunk
+            writeString(12, "fmt ");
+            view.setUint32(16, 16, true); // PCM
+            view.setUint16(20, 1, true); // format = PCM
+            view.setUint16(22, 1, true); // channels = 1
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true); // byte rate
+            view.setUint16(32, 2, true); // block align
+            view.setUint16(34, 16, true); // bits per sample
+
+            // data chunk
+            writeString(36, "data");
+            view.setUint32(40, samplesFloat32.length * 2, true);
+
+            let offset = 44;
+            for (let i = 0; i < samplesFloat32.length; i++, offset += 2) {
+                let s = Math.max(-1, Math.min(1, samplesFloat32[i]));
+                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+            }
+            return new Blob([view], { type: "audio/wav" });
+        }
+
+        async function _stopAndUpload() {
+            try {
+                const flat = _flattenFloat32(recordedBuffers);
+                const resampled = _resampleLinearFloat32(flat, recordingSampleRate, 16000);
+                const audioBlob = _encodeWavMono16(resampled, 16000);
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'temp_audio.wav');
+
+                // Show processing state
+                if (activeMicBtn) {
+                    activeMicBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                    activeMicBtn.disabled = true;
+                }
+
+                const response = await fetch('/speech-to-text', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (!data?.success) {
+                    alert('Speech-to-text failed: ' + (data?.error || 'Unknown error'));
+                    return;
+                }
+
+                function _extractTranscript(payload) {
+                    if (payload == null) return '';
+                    // Common shapes:
+                    // { success: true, text: "..." }
+                    // { success: true, text: { text: "..."} }
+                    // { success: true, question: "..." } etc.
+                    let candidate =
+                        payload.text ??
+                        payload.question ??
+                        payload.transcript ??
+                        payload.transcription ??
+                        '';
+
+                    if (candidate == null) return '';
+                    if (typeof candidate === 'string') return candidate;
+                    if (typeof candidate === 'number' || typeof candidate === 'boolean') return String(candidate);
+
+                    if (typeof candidate === 'object') {
+                        const nested =
+                            candidate.text ??
+                            candidate.question ??
+                            candidate.transcript ??
+                            candidate.transcription ??
+                            '';
+                        if (typeof nested === 'string') return nested;
+                        // Only write actual transcript strings into the input box.
+                        return '';
+                    }
+
+                    return String(candidate);
+                }
+
+                const text = _extractTranscript(data).trim();
+                if (text.length > 0) {
+                    if (activeQuestionInput) {
+                        activeQuestionInput.value = text;
+                    }
+                    // Some browsers/UI setups only refresh on input events
+                    if (activeQuestionInput) {
+                        activeQuestionInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        activeQuestionInput.focus();
+                    }
+                } else {
+                    alert('No speech detected. Please try again and speak closer to the mic.');
+                }
+            } catch (err) {
+                console.error('Speech-to-text error:', err);
+                alert('Speech-to-text error: ' + (err?.message || err));
+            } finally {
+                // Reset UI
+                if (activeMicBtn) {
+                    activeMicBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                    activeMicBtn.style.background = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+                    activeMicBtn.disabled = false;
+                    activeMicBtn.classList.remove('recording');
+                }
+            }
+        }
+
+        function stopRecording() {
+            if (!audioContext) return;
+            try {
+                if (processorNode) processorNode.disconnect();
+                if (sourceNode) sourceNode.disconnect();
+                if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+                if (audioContext) audioContext.close();
+            } catch (e) {
+                console.warn("Stop recording cleanup error:", e);
+            } finally {
+                processorNode = null;
+                sourceNode = null;
+                mediaStream = null;
+                audioContext = null;
+            }
+            console.log("Recording stopped.");
+            _stopAndUpload();
+        }
+
+        function bindMicButton(buttonId, inputId) {
+            const btn = document.getElementById(buttonId);
+            const input = document.getElementById(inputId);
+            if (!btn || !input) return;
+
+            // Mouse Events
+            btn.addEventListener('mousedown', () => startRecording(btn, input));
+            btn.addEventListener('mouseup', stopRecording);
+
+            // Touch Events (For Mobile support)
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevents long-press context menus
+                startRecording(btn, input);
+            });
+            btn.addEventListener('touchend', stopRecording);
+
+            // Accessibility: Stop if mouse leaves the button while holding
+            btn.addEventListener('mouseleave', stopRecording);
+        }
+
+        bindMicButton('doc_mic_btn', 'doc_question');
+        bindMicButton('web_mic_btn', 'question');
     </script>
 </body>
 </html>
@@ -742,15 +1034,53 @@ def qa_document():
             
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+    
+@app.route('/speech-to-text', methods=['POST'])
+def handle_speech():
+    if 'audio' not in request.files:
+        return jsonify({'success': False, 'error': 'No audio'})
+
+    audio_file = request.files['audio']
+    temp_path = os.path.join(app.config['UPLOAD_FOLDER'], "live_speech.wav")
+    audio_file.save(temp_path)
+
+    # CALL THE FUNCTION DIRECTLY
+    try:
+        # Return raw transcription only (no LLM rewriting).
+        final_question = transcribe_audio(temp_path, normalize_to_question=True)
+
+        # Ensure we always return a plain string.
+        # If an upstream function returns a structured object, JS may render it as "[object Object]".
+        text = final_question
+        if isinstance(text, dict):
+            text = (
+                text.get("question")
+                or text.get("text")
+                or text.get("transcript")
+                or text.get("transcription")
+                or ""
+            )
+        if text is None:
+            text = ""
+        if not isinstance(text, str):
+            text = str(text)
+        text = text.strip()
+        
+        # Clean up the file after processing
+        os.remove(temp_path) 
+        
+        return jsonify({'success': True, 'text': text})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🌐 Bridge Document Summarizer - Web Interface")
+    print("Bridge Document Summarizer - Web Interface")
     print("Docling + Google Gemini 2.0 Flash")
     print("=" * 60)
-    print("\n✅ Server starting...")
-    print("📱 Open your browser and go to: http://localhost:5000")
-    print("\n💡 Press Ctrl+C to stop the server\n")
+    print("\nServer starting...")
+    print("Open your browser and go to: http://localhost:5000")
+    print("\nPress Ctrl+C to stop the server\n")
     print("=" * 60)
     
     app.run(debug=False, host='0.0.0.0', port=5000)

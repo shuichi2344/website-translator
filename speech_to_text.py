@@ -1,12 +1,20 @@
-import sounddevice as sd
+import os
 import numpy as np
 from pynput import keyboard
 from transformers import pipeline
 import warnings
 import torch
 from llama_cpp import Llama
+import soundfile as sf
+from typing import Tuple
+
+# Prevent torch._dynamo from registering noisy/slow atexit handlers (Windows often looks "hung" on exit).
+# This app does not rely on torch.compile, so disabling Dynamo is safe here.
+os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+
+country = "Malaysia"
 
 # ==========================
 # CONFIGURATION
@@ -63,7 +71,7 @@ def get_llm_instance():
 def llm_process(text, task):
     if not text or len(text) < 2:
         return {"dialect": "N/A", "question": "No input detected", "query": "N/A"}
-    
+
     if task == "dialect":
         sys_msg = (
         "You are an ASEAN Linguistic Expert. Detect the dialect(s) from this list: "
@@ -74,19 +82,21 @@ def llm_process(text, task):
     )
     elif task == "question":
         sys_msg = (
-            "You are an English Translator. Rewrite the input into ONE clear Standard English question.\n"
+            "You are a Translator. Rewrite the input into ONE clear question.\n"
             "STRICT RULES:\n"
-            "- The output MUST be in English ONLY. Do not use Malay, Thai, or any other language.\n"
             "- Remove all slang and particles.\n"
             "- No bolding, no notes, no parentheses.\n"
             "Output ONLY the English question."
         )
     elif task == "query":
         sys_msg = (
-            "Convert the text into 4-5 professional search keywords for a government website.\n"
-            "Example Input: 'How to renew license?'\n"
-            "Example Output: driving license renewal requirements fees\n"
-            "Rules: No bolding, no conversational text, keywords only."
+            f"You are a Search Expert. The current user location is {country}.\n"
+            "Convert the input into professional English keywords.\n"
+            "RULES:\n"
+            f"1. If the country is not specified, assume the context is {country}.\n"
+            "2. Output must be 100 percent English. Translate all dialect words.\n"
+            f"Example: 'renew license' -> {country} driving license renewal requirements online\n"
+            "Output ONLY the keywords."
         )
 
     prompt = f"<|im_start|>system\n{sys_msg}<|im_end|>\n<|im_start|>user\nText: {text}<|im_end|>\n<|im_start|>assistant\n"
@@ -112,10 +122,66 @@ def llm_process(text, task):
         print(f"⚠️ LLM Error: {e}")
         return {"dialect": "N/A", "question": "N/A", "query": "N/A"}
 
+def transcribe_audio(filepath: str, *, normalize_to_question: bool = False) -> str:
+    """
+    Transcribe audio for the web app without requiring ffmpeg.
+    The web UI will upload WAV (PCM) so we can decode via libsndfile (soundfile).
+    """
+    samples, sr = _load_audio_soundfile(filepath)
+    if samples.size == 0:
+        return ""
+
+    # Ensure mono float32
+    if samples.ndim > 1:
+        samples = samples.mean(axis=1)
+    samples = samples.astype(np.float32, copy=False)
+
+    # Resample to Whisper's expected rate (16k)
+    if sr != SAMPLING_RATE:
+        samples = _resample_linear(samples, sr, SAMPLING_RATE)
+        sr = SAMPLING_RATE
+
+    # Add a tiny bit of silence (0.5s) at the start/end to avoid clipped words
+    pad = int(0.5 * sr)
+    if pad > 0:
+        samples = np.concatenate([np.zeros(pad, dtype=np.float32), samples, np.zeros(pad, dtype=np.float32)])
+
+    asr = get_asr_pipe()
+    res = asr(samples, generate_kwargs={"task": "transcribe"}, chunk_length_s=30, stride_length_s=5)
+    raw_text = (res.get("text") or "").strip()
+    if not raw_text:
+        return ""
+
+    # By default, return the raw transcription (what the user spoke).
+    # Normalization into a "clean question" is optional and should be explicitly requested.
+    if normalize_to_question:
+        normalized = llm_process(raw_text, "question").get("question")
+        if isinstance(normalized, str) and normalized.strip():
+            return normalized.strip()
+
+    # Fallback / default
+    return raw_text
+
+
+def _load_audio_soundfile(path: str) -> Tuple[np.ndarray, int]:
+    data, sr = sf.read(path, dtype="float32", always_2d=False)
+    return data, int(sr)
+
+
+def _resample_linear(x: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
+    if src_sr == dst_sr:
+        return x
+    if x.size == 0:
+        return x.astype(np.float32, copy=False)
+    duration = x.shape[0] / float(src_sr)
+    dst_len = max(1, int(round(duration * dst_sr)))
+    src_idx = np.linspace(0.0, x.shape[0] - 1, num=x.shape[0], dtype=np.float32)
+    dst_idx = np.linspace(0.0, x.shape[0] - 1, num=dst_len, dtype=np.float32)
+    return np.interp(dst_idx, src_idx, x.astype(np.float32, copy=False)).astype(np.float32, copy=False)
+
 # ==========================
 # PUSH TO TALK SESSION
 # ==========================
-
 class PTTSession:
     def __init__(self):
         self.recording = False
@@ -167,53 +233,26 @@ class PTTSession:
             "query": self.query_data
         }
 
-# ==========================
-# MAIN
-# ==========================
+# if __name__ == "__main__":
+#     try:
+#         # Pre-load to ensure models are ready
+#         get_asr_pipe()
+#         llm = get_llm_instance()
 
-def run_assistant():
-    session = PTTSession()
+#         final_results = run_assistant()
 
-    def on_press(key):
-        if key == keyboard.Key.space: session.start_recording()
+#         print("\n" + "="*30)
+#         print(f"DETECTED: {final_results.get('dialect')}")
+#         print(f"ENGLISH : {final_results.get('question')}")
+#         print(f"QUERY   : {final_results.get('query')}")
+#         print("="*30)
 
-    def on_release(key):
-        if key == keyboard.Key.space:
-            session.stop_recording()
-            return False 
-        if key == keyboard.Key.esc: return False
-
-    stream = sd.InputStream(samplerate=SAMPLING_RATE, channels=1, callback=session.callback)
-
-    print("\n--- ASEAN VOICE ASSISTANT READY ---")
-    print("Hold [SPACE] to speak | [ESC] to quit")
-
-    with stream:
-        with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-            listener.join()
-
-    return session.results
-
-if __name__ == "__main__":
-    try:
-        # Pre-load to ensure models are ready
-        get_asr_pipe()
-        llm = get_llm_instance()
-
-        final_results = run_assistant()
-
-        print("\n" + "="*30)
-        print(f"DETECTED: {final_results.get('dialect')}")
-        print(f"ENGLISH : {final_results.get('question')}")
-        print(f"QUERY   : {final_results.get('query')}")
-        print("="*30)
-
-    except KeyboardInterrupt:
-        print("\nStopping assistant...")
-    finally:
-        # MANUALLY CLOSE THE LLM
-        # This prevents the TypeError you saw in the traceback
-        if _llm_instance is not None:
-            print("Cleaning up models...")
-            _llm_instance.close()
-            _llm_instance = None
+#     except KeyboardInterrupt:
+#         print("\nStopping assistant...")
+#     finally:
+#         # MANUALLY CLOSE THE LLM
+#         # This prevents the TypeError you saw in the traceback
+#         if _llm_instance is not None:
+#             print("Cleaning up models...")
+#             _llm_instance.close()
+#             _llm_instance = None
