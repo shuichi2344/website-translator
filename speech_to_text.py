@@ -1,0 +1,219 @@
+import sounddevice as sd
+import numpy as np
+from pynput import keyboard
+from transformers import pipeline
+import warnings
+import torch
+from llama_cpp import Llama
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+
+# ==========================
+# CONFIGURATION
+# ==========================
+ASR_MODEL = "openai/whisper-large-v3-turbo"
+# No longer a string path for transformers, but a local GGUF file
+SAMPLING_RATE = 16000
+
+# ==========================
+# LAZY MODEL LOADING
+# ==========================
+_asr_pipe = None
+_llm_instance = None  # <--- Renamed for clarity
+
+def get_asr_pipe():
+    global _asr_pipe
+    if _asr_pipe is not None:
+        return _asr_pipe
+    
+    device = 0 if torch.cuda.is_available() else -1
+    dtype = torch.float16 if device == 0 else torch.float32
+    
+    print(f"--- Loading ASR Model: {ASR_MODEL} ---")
+    _asr_pipe = pipeline(
+        "automatic-speech-recognition",
+        model=ASR_MODEL,
+        chunk_length_s=30,
+        device=device,
+        torch_dtype=dtype,
+    )
+    return _asr_pipe
+
+def get_llm_instance():
+    """Loads the CPU-optimized GGUF model."""
+    global _llm_instance
+    if _llm_instance is not None:
+        return _llm_instance
+
+    print(f"--- Loading Local LLM: Sailor2-8B-IQ2_M (GGUF) ---")
+    # This automatically downloads the file from HF to your cache if not present
+    _llm_instance = Llama.from_pretrained(
+        repo_id="bartowski/Sailor2-8B-Chat-GGUF",
+        filename="Sailor2-8B-Chat-IQ2_M.gguf",
+        n_ctx=2048,    # Context window
+        n_threads=8,   # Adjust based on your physical CPU cores
+        verbose=False  # Keeps the console clean
+    )
+    return _llm_instance
+
+# ==========================
+# UTILITIES
+# ==========================
+
+def llm_process(text, task):
+    if not text or len(text) < 2:
+        return {"dialect": "N/A", "question": "No input detected", "query": "N/A"}
+    
+    if task == "dialect":
+        sys_msg = (
+        "You are an ASEAN Linguistic Expert. Detect the dialect(s) from this list: "
+        "Manglish, Singlish, Thai-English, Malay, Hokkien, Cantonese, Tagalog, Taglish, Indonesian, Thai, Lao, Burmese, Sundanese, Vietnamese, Khmer.\n"
+        "RULE: If multiple dialects are used, combine them with a '+'.\n"
+        "Example: 'Sawadika, where is the shop?' -> Thai+English\n"
+        "Output ONLY the names. No extra words or parentheses."
+    )
+    elif task == "question":
+        sys_msg = (
+            "You are an English Translator. Rewrite the input into ONE clear Standard English question.\n"
+            "STRICT RULES:\n"
+            "- The output MUST be in English ONLY. Do not use Malay, Thai, or any other language.\n"
+            "- Remove all slang and particles.\n"
+            "- No bolding, no notes, no parentheses.\n"
+            "Output ONLY the English question."
+        )
+    elif task == "query":
+        sys_msg = (
+            "Convert the text into 4-5 professional search keywords for a government website.\n"
+            "Example Input: 'How to renew license?'\n"
+            "Example Output: driving license renewal requirements fees\n"
+            "Rules: No bolding, no conversational text, keywords only."
+        )
+
+    prompt = f"<|im_start|>system\n{sys_msg}<|im_end|>\n<|im_start|>user\nText: {text}<|im_end|>\n<|im_start|>assistant\n"
+    
+    try:
+        llm = get_llm_instance()
+        output = llm(prompt, max_tokens=100, stop=["<|im_end|>", "\n\n"], temperature=0.1)
+        response = output["choices"][0]["text"].strip()
+        
+        # FIX: If the task is 'question' or 'query', the small model won't output the label
+        # So we force the result into the dictionary even if the label is missing
+        results = {"dialect": "N/A", "question": "N/A", "query": "N/A"}
+        
+        if task == "dialect":
+            results["dialect"] = response.replace("DIALECT:", "").strip()
+        elif task == "question":
+            results["question"] = response.replace("QUESTION:", "").strip()
+        elif task == "query":
+            results["query"] = response.replace("QUERY:", "").strip()
+            
+        return results
+    except Exception as e:
+        print(f"⚠️ LLM Error: {e}")
+        return {"dialect": "N/A", "question": "N/A", "query": "N/A"}
+
+# ==========================
+# PUSH TO TALK SESSION
+# ==========================
+
+class PTTSession:
+    def __init__(self):
+        self.recording = False
+        self.audio_data = []
+        self.results = {"dialect": None, "question": None, "query": None}
+
+    def callback(self, indata, frames, time, status):
+        if self.recording:
+            self.audio_data.append(indata.copy())
+
+    def start_recording(self):
+        if not self.recording:
+            print("\nRecording... (Release SPACE to stop)")
+            self.audio_data = []
+            self.recording = True
+
+    def stop_recording(self):
+        if self.recording:
+            self.recording = False
+            print("Processing...")
+            self.process_audio()
+
+    # ... (inside PTTSession class) ...
+
+    def process_audio(self):
+        if not self.audio_data: return
+        audio_np = np.concatenate(self.audio_data, axis=0).flatten()
+
+        # 1. TRANSCRIBE
+        asr = get_asr_pipe()
+        res = asr(audio_np, generate_kwargs={"task": "transcribe", "do_sample": False})
+        raw_text = res["text"].strip()
+        
+        print(f"Raw Transcription: {raw_text}")
+        if len(raw_text) < 2: return
+
+        # 2. ANALYZE (Three separate focused passes)
+        print("Normalizing and Generating Query...")
+        
+        # We extract the string result from the dictionary returned by llm_process
+        self.dialect_data = llm_process(raw_text, "dialect").get("dialect")
+        self.question_data = llm_process(raw_text, "question").get("question")
+        self.query_data = llm_process(raw_text, "query").get("query")
+
+        # Update the dictionary that run_assistant() actually returns
+        self.results = {
+            "dialect": self.dialect_data,
+            "question": self.question_data,
+            "query": self.query_data
+        }
+
+# ==========================
+# MAIN
+# ==========================
+
+def run_assistant():
+    session = PTTSession()
+
+    def on_press(key):
+        if key == keyboard.Key.space: session.start_recording()
+
+    def on_release(key):
+        if key == keyboard.Key.space:
+            session.stop_recording()
+            return False 
+        if key == keyboard.Key.esc: return False
+
+    stream = sd.InputStream(samplerate=SAMPLING_RATE, channels=1, callback=session.callback)
+
+    print("\n--- ASEAN VOICE ASSISTANT READY ---")
+    print("Hold [SPACE] to speak | [ESC] to quit")
+
+    with stream:
+        with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+            listener.join()
+
+    return session.results
+
+if __name__ == "__main__":
+    try:
+        # Pre-load to ensure models are ready
+        get_asr_pipe()
+        llm = get_llm_instance()
+
+        final_results = run_assistant()
+
+        print("\n" + "="*30)
+        print(f"DETECTED: {final_results.get('dialect')}")
+        print(f"ENGLISH : {final_results.get('question')}")
+        print(f"QUERY   : {final_results.get('query')}")
+        print("="*30)
+
+    except KeyboardInterrupt:
+        print("\nStopping assistant...")
+    finally:
+        # MANUALLY CLOSE THE LLM
+        # This prevents the TypeError you saw in the traceback
+        if _llm_instance is not None:
+            print("Cleaning up models...")
+            _llm_instance.close()
+            _llm_instance = None
