@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# User data
+user_prefs/
+
+# Environment variables
+.env
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+*.swp
