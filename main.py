@@ -1,4 +1,5 @@
-from speech_to_text import speech_to_text
+from speech_to_text import run_assistant as speech_to_text
+from detect_dialect import detect_dialect
 from web_scraping import get_chunks_from_list
 from text_to_speech import speak_answer
 from government_mapping import find_specific_gov_links
@@ -11,14 +12,11 @@ country_suffix = "my"
 def main():
     result = speech_to_text()
 
-    raw = result.get("raw")
+    dialect = result.get("dialect")
     question = result.get("question")
-    query = result["query"]
-    dialect = result["dialect"]
+    query = result.get("query")
 
     print("-" * 30)
-    if raw:
-        print("Raw:", raw)
     if question:
         print("Question:", question)
     if dialect:
@@ -53,7 +51,7 @@ def main():
     print(f"\nProcessing Question: {question}")
 
     # Search for the most relevant 3 snippets
-    relevant_info = query_vector_db(question, index, chunks, top_k=3)
+    relevant_info = query_vector_db(question, index, chunks, top_k=5)
 
     print("\n--- Most Relevant Official Info Found ---")
     for i, snippet in enumerate(relevant_info, 1):
