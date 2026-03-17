@@ -120,7 +120,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         file_name_text.visible = False
         clear_file_btn.visible = False
         file_error_text.visible = False
-        page.update()
+        _refresh_summarise_btn()
 
     clear_file_btn = ft.IconButton(
         icon=ft.icons.CLOSE,
@@ -155,8 +155,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 file_name_text.visible = False
                 clear_file_btn.visible = False
                 file_error_text.visible = True
-        page.update()
-
+        _refresh_summarise_btn()
     file_picker.on_result = on_file_picked
 
     # Dashed drop-zone container
@@ -222,7 +221,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         valid = is_valid_url(val) if val else False
         url_valid[0] = valid
         url_error_text.visible = bool(val) and not valid
-        page.update()
+        _refresh_summarise_btn()
 
     url_field = ft.TextField(
         hint_text="Paste a government website URL",
@@ -250,6 +249,43 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     )
 
     # ------------------------------------------------------------------ #
+    #  Summarise button                                                    #
+    # ------------------------------------------------------------------ #
+
+    def _can_summarise() -> bool:
+        if active_mode[0] == "document":
+            return selected_file[0] is not None
+        if active_mode[0] == "web":
+            return url_valid[0]
+        return False
+
+    def on_summarise(_):
+        if active_mode[0] == "document":
+            _add_bubble(f"Summarising document: {selected_file[0]}", "user")
+        elif active_mode[0] == "web":
+            _add_bubble(f"Summarising: {url_field.value}", "user")
+        page.update()
+
+    summarise_btn = ft.ElevatedButton(
+        text="Summarise",
+        icon=ft.icons.AUTO_AWESOME_OUTLINED,
+        on_click=on_summarise,
+        visible=False,
+        style=ft.ButtonStyle(
+            bgcolor=accent,
+            color=ft.colors.WHITE if accent == "#000000" else ft.colors.BLACK,
+            shape=ft.RoundedRectangleBorder(radius=8),
+            padding=ft.padding.symmetric(vertical=14, horizontal=24),
+        ),
+        height=52,
+        width=200,
+    )
+
+    def _refresh_summarise_btn():
+        summarise_btn.visible = _can_summarise()
+        page.update()
+
+    # ------------------------------------------------------------------ #
     #  Context Input Area + Back button (Task 3.3)                        #
     # ------------------------------------------------------------------ #
 
@@ -259,7 +295,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     # Slide-up panel — always in the tree, offset drives show/hide
     panel_container = ft.Container(
         content=ft.Column(
-            [document_panel, web_panel],
+            [
+                document_panel,
+                web_panel,
+                ft.Container(
+                    content=summarise_btn,
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.only(top=4, bottom=8),
+                ),
+            ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=0,
         ),
@@ -282,6 +326,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         active_mode[0] = mode
         document_panel.visible = mode == "document"
         web_panel.visible = mode == "web"
+        if mode is None:
+            summarise_btn.visible = False
         # Slide up when showing, slide down when hiding
         if mode is not None:
             panel_container.visible = True

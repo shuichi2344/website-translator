@@ -16,17 +16,13 @@ ASEAN_COUNTRIES = [
     "Myanmar", "Cambodia", "Laos", "Singapore", "Brunei", "Timor-Leste"
 ]
 
-FONT_SIZES = ["Small", "Medium", "Large"]
-
-
 def build_preferences_view(page: ft.Page, state: AppState) -> ft.View:
-    """Build the /preferences view — country, language, font size."""
+    """Build the /preferences view — country and language."""
 
     accent = ACCENT_DARK if state.theme_mode == "Dark" else ACCENT
 
     sel_country = [state.country or None]
     sel_language = [state.language or None]
-    sel_font = [state.font_size or "Medium"]
 
     error_text = ft.Text("", color=ft.colors.RED_600, visible=False)
 
@@ -39,7 +35,7 @@ def build_preferences_view(page: ft.Page, state: AppState) -> ft.View:
         )
 
     def _all_selected() -> bool:
-        return bool(sel_country[0] and sel_language[0] and sel_font[0])
+        return bool(sel_country[0] and sel_language[0])
 
     confirm_btn = primary_button(label="Confirm", on_click=None, width=280, state=state)
     confirm_btn.disabled = not _all_selected()
@@ -82,47 +78,11 @@ def build_preferences_view(page: ft.Page, state: AppState) -> ft.View:
         text_size=state.font_sp(),
     )
 
-    # --- Font size buttons ---
-    font_preview = ft.Text(
-        "This is how your text will look.",
-        size={"Small": 14, "Medium": 16, "Large": 20}.get(sel_font[0], 16),
-        color=state.text_color(),
-    )
-
-    font_row = ft.Row(spacing=8)
-
-    def _build_font_tiles():
-        def _handler(size):
-            def h(e):
-                sel_font[0] = size
-                font_preview.size = {"Small": 14, "Medium": 16, "Large": 20}[size]
-                _build_font_tiles()
-                confirm_btn.disabled = not _all_selected()
-                error_text.visible = False
-                page.update()
-            return h
-        font_row.controls = [
-            ft.Container(
-                content=ft.Text(size, size=state.font_sp(), color=state.text_color()),
-                on_click=_handler(size),
-                bgcolor=ft.colors.with_opacity(0.08, accent) if size == sel_font[0] else ft.colors.TRANSPARENT,
-                border=ft.border.all(3, accent if size == sel_font[0] else ft.colors.GREY_400),
-                border_radius=8,
-                padding=ft.padding.symmetric(vertical=14, horizontal=20),
-                height=52,
-                alignment=ft.alignment.center,
-            )
-            for size in FONT_SIZES
-        ]
-
-    _build_font_tiles()
-
     # --- Confirm ---
     def handle_confirm(e):
         error_text.visible = False
         state.country = sel_country[0]
         state.language = sel_language[0]
-        state.font_size = sel_font[0]
         state.onboarding_complete = True
         try:
             save_state(state)
@@ -145,13 +105,6 @@ def build_preferences_view(page: ft.Page, state: AppState) -> ft.View:
             section_header("Select Your Language"),
             ft.Container(height=8),
             language_dropdown,
-            ft.Container(height=28),
-
-            section_header("Choose Text Size"),
-            ft.Container(height=8),
-            font_row,
-            ft.Container(height=12),
-            font_preview,
             ft.Container(height=28),
 
             error_text,
