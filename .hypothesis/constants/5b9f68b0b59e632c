@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\checkbox.py
+# hypothesis_version: 6.151.9
+
+['activeColor', 'adaptive', 'autofocus', 'blur', 'bool', 'bool?', 'change', 'checkColor', 'checkbox', 'fillColor', 'focus', 'focusColor', 'hoverColor', 'label', 'labelPosition', 'overlayColor', 'tristate', 'value']

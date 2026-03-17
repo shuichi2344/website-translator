@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\websocket\_ssl_compat.py
+# hypothesis_version: 6.151.9
+
+['HAVE_SSL', 'SSLEOFError', 'SSLError', 'SSLWantReadError', 'SSLWantWriteError', 'ssl']

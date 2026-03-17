@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\websocket\_logging.py
+# hypothesis_version: 6.151.9
+
+['DEBUG', 'debug', 'dump', 'enableTrace', 'error', 'isEnabledForDebug', 'isEnabledForError', 'isEnabledForTrace', 'trace', 'warning', 'websocket']

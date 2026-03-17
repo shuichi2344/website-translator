@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\clients\base.py
+# hypothesis_version: 6.151.9
+
+[128, '+', '-', '-._~', '/', '=', 'Bearer', 'Content-Type', 'GET', 'MAC', 'S256', '_', 'access_token', 'ascii', 'auth_header', 'body', 'code', 'mac_algorithm', 'mac_key', 'plain', 'query', 'refresh_token', 'token_type']

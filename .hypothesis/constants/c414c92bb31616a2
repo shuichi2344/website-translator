@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\openid\connect\core\grant_types\implicit.py
+# hypothesis_version: 6.151.9
+
+['id_token', 'id_token token', 'state']

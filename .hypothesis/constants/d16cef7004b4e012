@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\menu_item_button.py
+# hypothesis_version: 6.151.9
+
+['blur', 'bool', 'click', 'clipBehavior', 'closeOnClick', 'content', 'focus', 'focusOnHover', 'hover', 'leading', 'menuitembutton', 'n', 'onClick', 'onHover', 'style', 'trailing']

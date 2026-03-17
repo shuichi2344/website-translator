@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\haptic_feedback.py
+# hypothesis_version: 6.151.9
+
+['hapticfeedback', 'heavy_impact', 'light_impact', 'medium_impact', 'vibrate']

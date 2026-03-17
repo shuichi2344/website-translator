@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\navigation_drawer.py
+# hypothesis_version: 6.151.9
+
+['bgcolor', 'bool', 'change', 'dismiss', 'elevation', 'icon', 'icon_content', 'indicatorColor', 'indicatorShape', 'int', 'label', 'n', 'navigationdrawer', 'open', 'selectedIcon', 'selectedIndex', 'shadowColor', 'surfaceTintColor', 'tilePadding']

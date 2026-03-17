@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_runtime\app.py
+# hypothesis_version: 6.151.9
+
+['*', '--args', '--attached', '--content-dir', '--log-level', '--port', '-W', '-n', '.app', '.flet', '127.0.0.1', 'FLET_ASSETS_PATH', 'FLET_DETACH_FLETD', 'FLET_FORCE_WEB_VIEW', 'FLET_PAGE_NAME', 'FLET_SERVER_IP', 'FLET_SERVER_PORT', 'FLET_SERVER_UDS_PATH', 'FLET_UPLOAD_ROOT_DIR', 'FLET_USE_COLOR_EMOJI', 'FLET_VIEW_PATH', 'FLET_WEB_RENDERER', '_MEI', 'assets', 'bin', 'close', 'flet', 'flet-windows.zip', 'flet.exe', 'fletd', 'fletd.exe', 'open', 'page', 'path', 'r', 'r:gz', 'tar.gz', 'true', 'zip']

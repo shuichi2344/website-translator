@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\animated_switcher.py
+# hypothesis_version: 6.151.9
+
+['animatedswitcher', 'content', 'duration', 'fade', 'n', 'reverseDuration', 'rotation', 'scale', 'switchInCurve', 'switchOutCurve', 'transition']

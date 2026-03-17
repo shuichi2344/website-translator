@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\endpoints\metadata.py
+# hypothesis_version: 6.151.9
+
+[200, '#', '&', '*', '?', 'Content-Type', 'GET', 'application/json', 'client_secret_basic', 'client_secret_post', 'code', 'default_grant', 'fragment', 'http', 'implicit', 'issuer', 'jwks_uri', 'none', 'op_policy_uri', 'op_tos_uri', 'query', 'revocation_endpoint', 'scopes_supported', 'token', 'token_endpoint', 'ui_locales_supported']

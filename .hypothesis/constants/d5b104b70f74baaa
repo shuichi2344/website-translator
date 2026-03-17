@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\websockets\exceptions.py
+# hypothesis_version: 6.151.9
+
+[1006, 'AbortHandshake', 'ConnectionClosed', 'ConnectionClosedOK', 'DuplicateParameter', 'InvalidHandshake', 'InvalidHeader', 'InvalidHeaderFormat', 'InvalidHeaderValue', 'InvalidMessage', 'InvalidOrigin', 'InvalidParameterName', 'InvalidState', 'InvalidStatus', 'InvalidStatusCode', 'InvalidURI', 'InvalidUpgrade', 'NegotiationError', 'Origin', 'PayloadTooBig', 'ProtocolError', 'RedirectHandshake', 'SecurityError', 'WebSocketException']

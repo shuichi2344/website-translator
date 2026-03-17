@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\clients\web_application.py
+# hypothesis_version: 6.151.9
+
+['authorization_code', 'client_id', 'code', 'include_client_id', 'plain']

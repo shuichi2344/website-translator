@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\scrollable_control.py
+# hypothesis_version: 6.151.9
+
+['auto', 'autoScroll', 'bool', 'curve', 'delta', 'duration', 'i', 'key', 'method', 'n', 'offset', 'onScroll', 'onScrollInterval', 'p', 'reverse', 'scroll', 'scroll_to']

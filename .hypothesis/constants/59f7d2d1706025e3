@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\charts\line_chart.py
+# hypothesis_version: 6.151.9
+
+['animate', 'b', 'baselinex', 'baseliney', 'bgcolor', 'bool', 'border', 'chart_event', 'float', 'horizontalGridLines', 'interactive', 'l', 'linechart', 'maxx', 'maxy', 'minx', 'miny', 'n', 'onChartEvent', 'pointLineEnd', 'pointLineStart', 'r', 't', 'tooltipBgcolor', 'verticalGridLines']

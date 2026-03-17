@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\parameters.py
+# hypothesis_version: 6.151.9
+
+['Content-Type', 'access_token', 'callback', 'client_id', 'client_secret', 'code', 'code_challenge', 'code_verifier', 'error', 'expires_at', 'expires_in', 'grant_type', 'plain', 'redirect_uri', 'response_type', 'scope', 'state', 'token', 'token_type', 'token_type_hint']

@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\client_storage.py
+# hypothesis_version: 6.151.9
+
+['clientStorage:clear', 'clientStorage:get', 'clientStorage:remove', 'clientStorage:set', 'key', 'key_prefix', 'true', 'value']

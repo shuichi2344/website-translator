@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_runtime\auth\authorization.py
+# hypothesis_version: 6.151.9
+
+['Authorization', 'GET', 'POST', 'User-Agent', 'access_token', 'content-type', 'expires_at', 'expires_in', 'refresh_token', 'scope', 'token_type']

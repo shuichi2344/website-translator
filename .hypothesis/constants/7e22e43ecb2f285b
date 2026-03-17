@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\tabs.py
+# hypothesis_version: 6.151.9
+
+['animationDuration', 'bool', 'change', 'content', 'dividerColor', 'icon', 'indicatorBorderSide', 'indicatorColor', 'indicatorPadding', 'indicatorTabSize', 'int', 'labelColor', 'n', 'overlayColor', 'scrollable', 'selectedIndex', 'tab', 'tabAlignment', 'tab_content', 'tabs', 'text', 'unselectedLabelColor']

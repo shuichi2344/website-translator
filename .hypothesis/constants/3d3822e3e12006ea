@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\tokens.py
+# hypothesis_version: 6.151.9
+
+[3600, ', ', '?', 'Authorization', 'Bearer', 'Bearer %s', 'MAC id="%s"', 'access_token', 'bearer', 'bodyhash="%s"', 'expires_in', 'ext="%s"', 'hmac-sha-1', 'hmac-sha-256', 'mac="%s"', 'nonce="%s"', 'refresh_token', 'request_validator', 'save_token', 'scope', 'token_generator', 'token_type', 'ts="%s"', 'utf-8', '{}:{}']

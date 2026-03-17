@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\clients\backend_application.py
+# hypothesis_version: 6.151.9
+
+['client_credentials', 'client_id', 'include_client_id']

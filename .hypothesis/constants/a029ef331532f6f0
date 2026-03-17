@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\websockets\http.py
+# hypothesis_version: 6.151.9
+
+['.datastructures', '.legacy.http', 'Headers', 'MultipleValuesError', 'USER_AGENT', 'read_request', 'read_response', '{}.{}']

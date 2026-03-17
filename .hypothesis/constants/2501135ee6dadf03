@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\grant_types\implicit.py
+# hypothesis_version: 6.151.9
+
+[302, 'Location', 'client_id', 'redirect_uri', 'request', 'response_type', 'scope', 'state', 'token']

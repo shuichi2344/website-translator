@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\tooltip.py
+# hypothesis_version: 6.151.9
+
+['bgColor', 'bool', 'border', 'borderRadius', 'content', 'enableFeedback', 'gradient', 'height', 'margin', 'message', 'n', 'padding', 'preferBelow', 'shape', 'showDuration', 'textAlign', 'textStyle', 'tooltip', 'verticalOffset', 'waitDuration']

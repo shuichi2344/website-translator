@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\grant_types\base.py
+# hypothesis_version: 6.151.9
+
+['Cache-Control', 'Content-Type', 'Location', 'Pragma', 'application/json', 'client_id', 'code', 'code id_token token', 'code token', 'fragment', 'id_token token', 'no-cache', 'no-store', 'none', 'origin', 'post_auth', 'post_token', 'pre_auth', 'pre_token', 'query', 'state', 'token']

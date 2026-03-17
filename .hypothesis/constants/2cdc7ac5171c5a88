@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\range_slider.py
+# hypothesis_version: 6.151.9
+
+['activeColor', 'change', 'change_end', 'change_start', 'divisions', 'endvalue', 'inactiveColor', 'label', 'max', 'min', 'overlayColor', 'rangeslider', 'round', 'startvalue']

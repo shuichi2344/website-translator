@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\charts\line_chart_data.py
+# hypothesis_version: 6.151.9
+
+[1.0, 'aboveLine', 'aboveLineBgcolor', 'aboveLineCutoffY', 'aboveLineGradient', 'belowLine', 'belowLineBgcolor', 'belowLineCutoffY', 'belowLineGradient', 'bool', 'color', 'curved', 'dashPattern', 'data', 'float', 'gradient', 'point', 'selectedBelowLine', 'selectedPoint', 'shadow', 'strokeCapRound', 'strokeWidth']

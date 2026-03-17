@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\slider.py
+# hypothesis_version: 6.151.9
+
+['activeColor', 'adaptive', 'autofocus', 'blur', 'bool', 'change', 'change_end', 'change_start', 'divisions', 'float', 'focus', 'inactiveColor', 'label', 'max', 'min', 'round', 'slider', 'thumbColor', 'value']

@@ -1,0 +1,4 @@
+# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\openid\connect\core\endpoints\pre_configured.py
+# hypothesis_version: 6.151.9
+
+['Bearer', 'JWT', 'authorization_code', 'client_credentials', 'code', 'code id_token', 'code id_token token', 'code token', 'id_token', 'id_token token', 'none', 'password', 'refresh_token', 'token']
