@@ -1,11 +1,11 @@
 from speech_to_text import run_assistant as speech_to_text
-from detect_dialect import detect_dialect
 from web_scraping import get_chunks_from_list
 from text_to_speech import speak_answer
 from government_mapping import find_specific_gov_links
-from embedding import create_vector_db, query_vector_db
+from embedding import ingest_to_chroma, query_from_chroma
 from response_gen import generate_final_response
 import asyncio
+from datetime import datetime
 
 country_suffix = "my"
 
@@ -33,7 +33,7 @@ def main():
 
     print(f"Found {len(links)} specific sources. Starting extraction...")
 
-    # 2. Extract and Chunk
+    # Extract and Chunk
     all_chunks = get_chunks_from_list(links)
     print(f"\nTotal unique chunks collected: {len(all_chunks)}")
 
@@ -41,17 +41,12 @@ def main():
         print("Extraction failed or no text found on pages.")
         return
 
-    # 3. Create Vector Knowledge Base
-    print("\nCreating Knowledge Base...")
-    index, chunks = create_vector_db(all_chunks)
+    print("\nStoring data to chromadb...")
+    doc_id = f"gov_search_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    ingest_to_chroma(doc_id, all_chunks)
 
-    # 4. Handle User Interaction
-    # Suggestion: Use input() for a live demo, or keep it hardcoded for testing
-    # question = "Can I renew my Malaysia passport online?"
     print(f"\nProcessing Question: {question}")
-
-    # Search for the most relevant 3 snippets
-    relevant_info = query_vector_db(question, index, chunks, top_k=5)
+    relevant_info = query_from_chroma(question, top_k=5) # Search for the most relevant 5 snippets
 
     print("\n--- Most Relevant Official Info Found ---")
     for i, snippet in enumerate(relevant_info, 1):
@@ -59,11 +54,11 @@ def main():
         preview = snippet.replace('\n', ' ')[:150]
         print(f"[{i}] {preview}...")
 
-    # 5. Generate Answer using Gemini
+    # Generate Answer using Gemini
     final_answer = ""
     print("\nDrafting your answer...")
     try:
-        final_answer = generate_final_response(question, relevant_info)
+        final_answer = generate_final_response(question, relevant_info, dialect)
 
         print("\n" + "="*40)
         print("OFFICIAL ASSISTANT RESPONSE")
@@ -79,7 +74,7 @@ def main():
         print(f"\nError generating response: {e}")
         print("Make sure your GOOGLE_API_KEY is set correctly in the .env file.")
 
-    # 6. Convert text to speech
+    # Convert text to speech
     print("\nSpeaking the answer...")
     asyncio.run(speak_answer(final_answer))
 

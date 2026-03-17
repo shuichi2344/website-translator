@@ -177,6 +177,12 @@ class PTTSession:
 # ==========================
 
 def run_assistant():
+    # 1. PRELOAD MODELS (These use the global _asr_pipe and _llm_instance)
+    # The helper functions get_asr_pipe() and get_llm_instance() 
+    # already handle the "if None" check internally.
+    get_asr_pipe()
+    get_llm_instance()
+
     session = PTTSession()
 
     def on_press(key):
@@ -199,26 +205,26 @@ def run_assistant():
 
     return session.results
 
-if __name__ == "__main__":
-    try:
-        # Pre-load to ensure models are ready
-        get_asr_pipe()
-        llm = get_llm_instance()
+# if __name__ == "__main__":
+#     try:
+#         # Pre-load to ensure models are ready
+#         get_asr_pipe()
+#         llm = get_llm_instance()
 
-        final_results = run_assistant()
+#         final_results = run_assistant()
 
-        print("\n" + "="*30)
-        print(f"DETECTED: {final_results.get('dialect')}")
-        print(f"ENGLISH : {final_results.get('question')}")
-        print(f"QUERY   : {final_results.get('query')}")
-        print("="*30)
+#         print("\n" + "="*30)
+#         print(f"DETECTED: {final_results.get('dialect')}")
+#         print(f"ENGLISH : {final_results.get('question')}")
+#         print(f"QUERY   : {final_results.get('query')}")
+#         print("="*30)
 
-    except KeyboardInterrupt:
-        print("\nStopping assistant...")
-    finally:
-        # MANUALLY CLOSE THE LLM
-        # This prevents the TypeError you saw in the traceback
-        if _llm_instance is not None:
-            print("Cleaning up models...")
-            _llm_instance.close()
-            _llm_instance = None
+#     except KeyboardInterrupt:
+#         print("\nStopping assistant...")
+#     finally:
+#         # MANUALLY CLOSE THE LLM
+#         # This prevents the TypeError you saw in the traceback
+#         if _llm_instance is not None:
+#             print("Cleaning up models...")
+#             _llm_instance.close()
+#             _llm_instance = None
