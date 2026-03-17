@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
+from typing import Any
 
 PREFS_DIR = "user_prefs"
 
@@ -49,6 +50,9 @@ class AppState:
     font_size: str = "Medium"
     theme_mode: str = "Light"
     onboarding_complete: bool = False
+    # Runtime-only (not persisted)
+    session: Any | None = None
+    stream: Any | None = None
 
     def font_sp(self) -> int:
         return {"Small": 14, "Medium": 16, "Large": 20}[self.font_size]
@@ -119,7 +123,16 @@ def save_state(state: AppState) -> None:
     try:
         os.makedirs(PREFS_DIR, exist_ok=True)
         target = os.path.join(PREFS_DIR, f"{state.username}.json")
-        data = asdict(state)
+        # Persist only user preferences; runtime objects like session/stream
+        # are not JSON-serializable and should not be written to disk.
+        data = {
+            "username": state.username,
+            "language": state.language,
+            "country": state.country,
+            "font_size": state.font_size,
+            "theme_mode": state.theme_mode,
+            "onboarding_complete": state.onboarding_complete,
+        }
         dir_name = os.path.dirname(os.path.abspath(target))
         fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
         try:

@@ -1,96 +1,79 @@
-"""
-engine/speech/main.py — UI-integrated pipeline.
-
-run_pipeline_with_stt_result() and _pipeline_with_result() are both
-importable so home.py can call either the threaded wrapper or the raw
-function directly.
-"""
-from __future__ import annotations
-
+# from speech_to_text import creat as speech_to_text
+from engine.speech.web_scraping import get_chunks_from_list
+from engine.speech.text_to_speech import speak_answer
+from engine.speech.government_mapping import find_specific_gov_links
+from engine.speech.embedding import ingest_to_chroma, query_from_chroma
+from engine.speech.response_gen import generate_final_response
 import asyncio
-import threading
 from datetime import datetime
-from typing import Callable
 
+country_suffix = "my"
 
-def run_pipeline_with_stt_result(
-    stt_result: dict,
-    on_status: Callable[[str], None],
-    on_result: Callable[[str, list, str, str], None],
-    on_error: Callable[[Exception], None],
-    country_suffix: str = "my",
-) -> None:
-    """Spawn a background thread that runs the full pipeline."""
-    threading.Thread(
-        target=_pipeline_with_result,
-        args=(stt_result, on_status, on_result, on_error, country_suffix),
-        daemon=True,
-    ).start()
+def process_voice_result(dialect, question, query):
+    # result = speech_to_text()
 
+    # dialect = result.get("dialect")
+    # question = result.get("question")
+    # query = result.get("query")
 
-def _pipeline_with_result(
-    stt_result: dict,
-    on_status: Callable[[str], None],
-    on_result: Callable[[str, list, str, str], None],
-    on_error: Callable[[Exception], None],
-    country_suffix: str = "my",
-) -> None:
-    """Full pipeline: gov-link search → scrape → RAG → answer → TTS."""
+    print("-" * 30)
+    if question:
+        print("Question:", question)
+    if dialect:
+        print("Dialect:", dialect)
+    if query:
+        print("Normalized query:", query)
+    print("-" * 30)
+
+    # base_link = find_specific_gov_links("Malaysia passport renewal online?", "my")
+    links = find_specific_gov_links(query, country_suffix)
+    if not links:
+        print("No official links found.")
+        return
+
+    print(f"Found {len(links)} specific sources. Starting extraction...")
+
+    # Extract and Chunk
+    all_chunks = get_chunks_from_list(links)
+    print(f"\nTotal unique chunks collected: {len(all_chunks)}")
+
+    if not all_chunks:
+        print("Extraction failed or no text found on pages.")
+        return
+
+    print("\nStoring data to chromadb...")
+    doc_id = f"gov_search_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    ingest_to_chroma(doc_id, all_chunks)
+
+    print(f"\nProcessing Question: {question}")
+    relevant_info = query_from_chroma(question, top_k=5) # Search for the most relevant 5 snippets
+
+    print("\n--- Most Relevant Official Info Found ---")
+    for i, snippet in enumerate(relevant_info, 1):
+        # Print a short preview of what the AI is "reading"
+        preview = snippet.replace('\n', ' ')[:150]
+        print(f"[{i}] {preview}...")
+
+    # Generate Answer using Gemini
+    final_answer = ""
+    print("\nDrafting your answer...")
     try:
-        from engine.speech.web_scraping import get_chunks_from_list
-        from engine.speech.text_to_speech import speak_answer
-        from engine.speech.government_mapping import find_specific_gov_links
-        from engine.speech.embedding import ingest_to_chroma, query_from_chroma
-        from engine.speech.response_gen import generate_final_response
-
-        dialect  = stt_result.get("dialect") or ""
-        question = stt_result.get("question") or stt_result.get("raw") or ""
-        query    = stt_result.get("query") or question
-
-        if question:
-            on_status(f'🗣 "{question}"')
-        if dialect:
-            on_status(f"Detected dialect: {dialect}")
-
-        # 1. Find government links
-        on_status("Searching official government sources...")
-        links = find_specific_gov_links(query, country_suffix)
-        if not links:
-            on_status("No official links found.")
-            return
-
-        on_status(f"Found {len(links)} source(s). Extracting content...")
-
-        # 2. Scrape & chunk
-        all_chunks = get_chunks_from_list(links)
-        if not all_chunks:
-            on_status("Could not extract text from pages.")
-            return
-
-        on_status(f"Extracted {len(all_chunks)} content chunks.")
-
-        # 3. Ingest to ChromaDB
-        on_status("Indexing information...")
-        doc_id = f"gov_search_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        ingest_to_chroma(doc_id, all_chunks)
-
-        # 4. RAG query
-        on_status("Finding most relevant information...")
-        relevant_info = query_from_chroma(question, top_k=5)
-
-        # 5. Generate answer
-        on_status("Drafting answer...")
         final_answer = generate_final_response(question, relevant_info, dialect)
 
-        sources_text = "\n".join(f"• {link}" for link in links)
-        on_status(f"Sources:\n{sources_text}")
+        print("\n" + "="*40)
+        print("OFFICIAL ASSISTANT RESPONSE")
+        print("="*40)
+        print(final_answer)
+        print("="*40)
 
-        # Deliver final answer
-        on_result(final_answer, links, dialect, question)
+        print("\nSources checked:")
+        for link in links:
+            print(f"- {link}")
 
-        # 6. TTS
-        on_status("Speaking the answer...")
-        asyncio.run(speak_answer(final_answer))
+    except Exception as e:
+        print(f"\nError generating response: {e}")
+        print("Make sure your GOOGLE_API_KEY is set correctly in the .env file.")
 
-    except Exception as exc:
-        on_error(exc)
+    # Convert text to speech
+    print("\nSpeaking the answer...")
+    asyncio.run(speak_answer(final_answer))

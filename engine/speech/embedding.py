@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from huggingface_hub import login
 from sentence_transformers import SentenceTransformer
-from chroma_config import ChromaDBConfig
+from engine.speech.chroma_config import ChromaDBConfig
 
 load_dotenv()
 hf_token = os.getenv("HF_TOKEN")

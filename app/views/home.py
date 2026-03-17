@@ -6,7 +6,8 @@ import flet as ft
 
 from app.state import AppState
 from app.components.theme import ACCENT, ACCENT_DARK
-
+from engine.speech.speech_to_text import create_session
+from engine.speech.main import process_voice_result
 
 def is_valid_url(s: str) -> bool:
     """Return True iff *s* starts with 'http://' or 'https://'."""
@@ -20,6 +21,12 @@ def is_valid_extension(ext: str) -> bool:
 
 def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     """Build the /home view — Progressive Disclosure dashboard."""
+
+    if state.session is None:
+        state.session, state.stream = create_session()
+
+    session = state.session
+    stream = state.stream
 
     # --- Ephemeral dashboard state (mutable via closures) ---
     active_mode: list = [None]    # None | "document" | "web"
@@ -426,21 +433,20 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
     def _start_recording(_):
         if (chat_field.value or "").strip():
-            return  # in send mode — tap_up will submit
+            return
+
         is_recording[0] = True
+
+        # UI updates (keep yours)
         chat_field.hint_text = "Recording..."
         mic_circle.bgcolor = ft.colors.RED_400
-        mic_circle.width = 54
-        mic_circle.height = 54
-        mic_circle.border_radius = 27
-        pulse_ring.bgcolor = ft.colors.with_opacity(0.3, ft.colors.RED_400)
-        pulse_ring.width = 68
-        pulse_ring.height = 68
-        pulse_ring.border_radius = 34
         page.update()
-        # Kick off continuous pulse via repeated size toggle
+
         _pulse(expand=False)
-        _get_ptt_session().start_recording()
+
+        # ✅ START AUDIO STREAM
+        stream.start()
+        session.start_recording()
 
     def _pulse(expand: bool):
         if not is_recording[0]:
@@ -460,21 +466,52 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def _stop_recording(_):
         was_recording = is_recording[0]
         is_recording[0] = False
-        # Reset mic button visuals
+
+        # Reset UI
         chat_field.hint_text = "Ask a question..."
         mic_circle.bgcolor = accent
-        mic_circle.width = 48
-        mic_circle.height = 48
-        mic_circle.border_radius = 24
-        pulse_ring.bgcolor = ft.colors.with_opacity(0.0, ft.colors.RED_400)
-        pulse_ring.width = 48
-        pulse_ring.height = 48
-        pulse_ring.border_radius = 24
         page.update()
+
         if (chat_field.value or "").strip():
             on_chat_submit(None)
+
         elif was_recording:
-            _get_ptt_session().stop_recording()
+            stream.stop()
+
+            # 🚨 Run heavy processing in background thread
+            def process():
+                session.stop_recording()
+                results = session.results
+
+                dialect = results.get("dialect")
+                question = results.get("question")
+                query = results.get("query")
+
+                # ✅ CALL YOUR MAIN LOGIC HERE
+                response = process_voice_result(dialect, question, query)
+
+                # 👉 Update UI safely
+                def update_ui():
+                    # You can push into chat UI instead
+                    chat_field.value = question or ""
+                    
+                    print("Dialect:", dialect)
+                    print("Question:", question)
+                    print("Query:", query)
+                    print("Response:", response)
+
+                    page.update()
+
+                # Flet API compatibility: `call_from_thread` doesn't exist in all versions.
+                if hasattr(page, "call_from_thread"):
+                    page.call_from_thread(update_ui)
+                else:
+                    update_ui()
+
+            # `page.run_thread()` is not available in all Flet versions.
+            # Use a plain daemon thread and marshal UI updates via `call_from_thread`.
+            import threading
+            threading.Thread(target=process, daemon=True).start()
 
     mic_btn = ft.GestureDetector(
         content=ft.Stack(
@@ -537,8 +574,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         question = results.get("question") or results.get("raw") or ""
 
         def _do():
-            is_recording[0] = False
-            chat_field.hint_text = "Ask a question..."
+            # Keep is_recording[0] True and mic visuals in recording state
+            # while the pipeline runs; pipeline callbacks will reset them.
             _add_bubble(question, "user")
             page.update()
         _ui(_do)
@@ -546,37 +583,42 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         # Always run the full pipeline after STT
         _run_main_pipeline(results)
 
+    def _reset_mic_visuals():
+        """Restore mic button to default (accent) state."""
+        def _do():
+            is_recording[0] = False
+            chat_field.hint_text = "Ask a question..."
+            mic_circle.bgcolor = accent
+            mic_circle.width = 48
+            mic_circle.height = 48
+            mic_circle.border_radius = 24
+            pulse_ring.bgcolor = ft.colors.with_opacity(0.0, ft.colors.RED_400)
+            pulse_ring.width = 48
+            pulse_ring.height = 48
+            pulse_ring.border_radius = 24
+            page.update()
+        _ui(_do)
+
     def _run_main_pipeline(stt_result: dict):
         import threading as _threading
-        from engine.speech.main import _pipeline_with_result  # noqa: PLC0415
+        from engine.speech.main import run_pipeline_with_stt_result  # noqa: PLC0415
 
         def on_status(msg: str):
             _add_bubble_safe(msg, "status")
 
         def on_result(answer: str, links: list, dialect: str, question: str):
+            _reset_mic_visuals()
             _add_bubble_safe(answer, "bot")
 
         def on_error(exc: Exception):
+            _reset_mic_visuals()
             _add_bubble_safe(f"⚠️ {exc}", "status")
 
         _threading.Thread(
-            target=_pipeline_with_result,
+            target=run_pipeline_with_stt_result,
             args=(stt_result, on_status, on_result, on_error, "my"),
             daemon=True,
         ).start()
-
-    _ptt_session = None
-
-    def _get_ptt_session():
-        nonlocal _ptt_session
-        if _ptt_session is None:
-            from engine.speech.speech_to_text import PTTSession  # noqa: PLC0415
-            _ptt_session = PTTSession(
-                on_result=_on_stt_result,
-                on_error=_on_stt_error,
-                on_status=_on_stt_status,
-            )
-        return _ptt_session
 
     # ------------------------------------------------------------------ #
     #  AppBar                                                              #
