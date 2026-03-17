@@ -20,3 +20,6 @@ user_prefs/
 .DS_Store
 Thumbs.db
 *.swp
+
+# database
+chroma_db
