@@ -2,3 +2,38 @@ flet==0.19.0
 pycountry
 hypothesis
 pytest
+
+# Web server
+flask
+werkzeug
+python-dotenv
+
+# Document processing
+docling
+beautifulsoup4
+requests
+
+# AI / LLM
+google-genai
+sentence-transformers
+huggingface-hub
+transformers
+torch
+llama-cpp-python
+
+# Vector DB
+chromadb
+
+# Translation
+deep-translator
+
+# Web scraping
+firecrawl-py
+
+# Speech / Audio
+soundfile
+numpy
+pydub
+
+# Optional (push-to-talk desktop mode only)
+pynput

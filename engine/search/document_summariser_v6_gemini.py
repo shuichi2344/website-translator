@@ -518,14 +518,28 @@ class DocumentSummarizer:
         print(f"   Long document detected - using chunking strategy")
         return self._summarize_long_document(text, num_sentences)
     
+    def _lang_instruction(self):
+        """Returns a language instruction string for Gemini prompts."""
+        lang_map = {
+            'en': 'English',
+            'ms': 'Malay (Bahasa Melayu)', 'id': 'Indonesian (Bahasa Indonesia)',
+            'vi': 'Vietnamese', 'th': 'Thai', 'zh-cn': 'Simplified Chinese',
+            'zh-tw': 'Traditional Chinese', 'ta': 'Tamil', 'tl': 'Tagalog/Filipino',
+            'my': 'Burmese/Myanmar', 'km': 'Khmer', 'lo': 'Lao',
+        }
+        lang_name = lang_map.get(self.target_lang, 'English')
+        return f"\n- IMPORTANT: You MUST write your entire response in {lang_name}, regardless of the language of the source text."
+
     def _summarize_chunk(self, text, num_sentences=5):
         """Summarize a single chunk of text using Gemini"""
         try:
             from google import genai
             from google.genai import types
-            
+
             client = genai.Client(api_key=self.gemini_api_key)
-            
+
+            lang_instruction = self._lang_instruction()
+
             prompt = f"""Read the following text and explain the main ideas in {num_sentences} simple bullet points.
 
 IMPORTANT - Write like you're explaining to a 10-year-old child:
@@ -537,11 +551,7 @@ IMPORTANT - Write like you're explaining to a 10-year-old child:
 - Start each line with just a bullet symbol: •
 - Do NOT include titles, headers, or bold text (**) 
 - Do NOT write intro text like "Here are the bullet points"
-- Just write the bullet points directly
-
-Example of GOOD simple language:
-✓ "The project helps small factories know when their machines will break before it happens"
-✗ "The project utilizes predictive maintenance algorithms for SME industrial equipment"
+- Just write the bullet points directly{lang_instruction}
 
 Text to summarize:
 {text[:50000]}
@@ -764,11 +774,7 @@ IMPORTANT - Write like you're explaining to a 10-year-old child:
 - Start each line with just a bullet symbol: •
 - Do NOT include titles, headers, or bold text (**)
 - Do NOT write intro text
-- Just write the bullet points directly
-
-Example of GOOD simple language:
-✓ "The project helps small factories know when their machines will break before it happens"
-✗ "The project utilizes predictive maintenance algorithms for SME industrial equipment"
+- Just write the bullet points directly{self._lang_instruction()}
 
 Section summaries:
 {combined}
@@ -797,8 +803,8 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
                 
         except Exception as e:
             print(f"⚠️  AI summarization failed: {e}")
-            print("   Falling back to extractive method...")
-            return self._summarize_extractive(text, num_sentences)
+            print("   Falling back to Ollama (llama3.2)...")
+            return self._summarize_with_ollama(text, num_sentences)
     
     def _clean_bullet_format(self, text):
         """Clean up bullet point formatting"""
@@ -1077,14 +1083,16 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
         
         print(f"   Using top 3 most relevant chunks as context")
         
-        # Generate answer using Gemini
+        # Generate answer using Gemini, fall back to Ollama
+        answer = None
+        lang_instruction = self._lang_instruction()
         try:
             from google import genai
             from google.genai import types
-            
+
             client = genai.Client(api_key=self.gemini_api_key)
-            
-            prompt = f"""Answer the following question based on the provided context. Use simple language that a 10-year-old can understand.
+
+            prompt = f"""Answer the following question based on the provided context. Use simple language that a 10-year-old can understand.{lang_instruction}
 
                     Question: {question}
 
@@ -1092,7 +1100,7 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
                     {context[:8000]}
 
                     Answer (in simple, clear language, - Do NOT include titles, headers, or bold text (**) ):"""
-            
+
             response = client.models.generate_content(
                 model=self.model,
                 contents=prompt,
@@ -1102,29 +1110,73 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
                     max_output_tokens=2048,
                 )
             )
-            
+
             if response and response.text:
                 answer = response.text.strip()
                 print(f"✅ Answer generated successfully")
-                
-                result = {
-                    'original_text': text,
-                    'summary': answer,
-                    'word_count': len(text.split()),
-                    'summary_word_count': len(answer.split()),
-                    'question': question,
-                    'source_type': source_type,
-                }
-                
-                if source_path:
-                    result['source_path'] = source_path
-                
-                return result
-            
+
         except Exception as e:
-            print(f"❌ Error generating answer: {e}")
+            print(f"⚠️  Gemini Q&A error: {e}")
+            print("   Falling back to Ollama (llama3.2)...")
+
+        if not answer:
+            answer = self._rag_qa_with_ollama(context, question)
+
+        if not answer:
             return None
-    
+
+        # Translate answer if target language is not English (safety net in case Gemini ignored the instruction)
+        if self.target_lang != 'en':
+            answer = self.translate_text(answer)
+
+        result = {
+            'original_text': text,
+            'summary': answer,
+            'word_count': len(text.split()),
+            'summary_word_count': len(answer.split()),
+            'question': question,
+            'source_type': source_type,
+        }
+        if source_path:
+            result['source_path'] = source_path
+        return result
+
+    def _rag_qa_with_ollama(self, context, question):
+        """Fallback Q&A using Ollama llama3.2"""
+        print(f"\n🦙 Using Ollama (llama3.2) for Q&A...")
+        try:
+            prompt = f"""Answer the following question based on the provided context. Use simple language that a 10-year-old can understand.
+
+Question: {question}
+
+Context:
+{context[:8000]}
+
+Answer (in simple, clear language):"""
+
+            response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "llama3.2",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.3, "top_p": 0.95}
+                },
+                timeout=120
+            )
+
+            if response.status_code == 200:
+                answer = response.json().get('response', '').strip()
+                if answer:
+                    print(f"✅ Ollama Q&A answer generated successfully")
+                    return answer
+
+            print("⚠️  Ollama Q&A failed")
+            return None
+        except Exception as e:
+            print(f"⚠️  Ollama Q&A error: {e}")
+            return None
+
     def rag_qa_document(self, file_path, question):
         """Answer questions about a document using RAG with ChromaDB"""
         print(f"📄 Processing Document: {file_path}")

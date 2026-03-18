@@ -1,6 +1,9 @@
 import os
 import numpy as np
-from pynput import keyboard
+try:
+    from pynput import keyboard
+except ImportError:
+    keyboard = None  # pynput not required for web/API usage
 from transformers import pipeline
 import warnings
 import torch

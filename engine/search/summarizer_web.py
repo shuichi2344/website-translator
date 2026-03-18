@@ -30,6 +30,36 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+# ── ffmpeg PATH fix ───────────────────────────────────────────────────────────
+# winget installs ffmpeg but the new PATH entry only takes effect after a shell
+# restart.  We probe known locations and inject the bin dir into os.environ so
+# pydub, subprocess, and the transformers pipeline all find it immediately.
+def _ensure_ffmpeg_on_path():
+    import shutil
+    if shutil.which("ffmpeg"):
+        return  # already on PATH
+
+    candidates = [
+        # winget / Gyan package (Windows)
+        os.path.expandvars(
+            r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1-full_build\bin"
+        ),
+        # chocolatey
+        r"C:\ProgramData\chocolatey\bin",
+        # manual install
+        r"C:\ffmpeg\bin",
+        r"C:\Program Files\ffmpeg\bin",
+    ]
+    for candidate in candidates:
+        if os.path.isfile(os.path.join(candidate, "ffmpeg.exe")):
+            os.environ["PATH"] = candidate + os.pathsep + os.environ.get("PATH", "")
+            print(f"✅ ffmpeg found and added to PATH: {candidate}")
+            return
+
+    print("⚠️  ffmpeg not found — audio conversion may fail")
+
+_ensure_ffmpeg_on_path()
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -1041,37 +1071,104 @@ def handle_speech():
         return jsonify({'success': False, 'error': 'No audio'})
 
     audio_file = request.files['audio']
-    temp_path = os.path.join(app.config['UPLOAD_FOLDER'], "live_speech.wav")
-    audio_file.save(temp_path)
+    original_filename = audio_file.filename or 'recording'
+    ext = os.path.splitext(original_filename)[1].lower() or '.webm'
+    raw_path = os.path.join(app.config['UPLOAD_FOLDER'], f"live_speech_raw{ext}")
+    wav_path = os.path.join(app.config['UPLOAD_FOLDER'], "live_speech.wav")
+    audio_file.save(raw_path)
 
-    # CALL THE FUNCTION DIRECTLY
     try:
-        # Return raw transcription only (no LLM rewriting).
-        final_question = transcribe_audio(temp_path, normalize_to_question=True)
-
-        # Ensure we always return a plain string.
-        # If an upstream function returns a structured object, JS may render it as "[object Object]".
-        text = final_question
-        if isinstance(text, dict):
-            text = (
-                text.get("question")
-                or text.get("text")
-                or text.get("transcript")
-                or text.get("transcription")
-                or ""
-            )
-        if text is None:
-            text = ""
-        if not isinstance(text, str):
-            text = str(text)
-        text = text.strip()
-        
-        # Clean up the file after processing
-        os.remove(temp_path) 
-        
+        text = _transcribe_raw_audio(raw_path, wav_path)
         return jsonify({'success': True, 'text': text})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+    finally:
+        for p in (raw_path, wav_path):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except OSError:
+                pass
+
+
+def _transcribe_raw_audio(raw_path: str, wav_path: str) -> str:
+    """
+    Convert raw browser audio (webm/ogg/mp4) to PCM WAV then transcribe.
+    Strategy (in order):
+      1. pydub + ffmpeg  → clean 16kHz mono WAV  → soundfile → Whisper
+      2. ffmpeg directly via subprocess           → clean WAV → soundfile → Whisper
+      3. Pass raw file directly to Whisper pipeline (it calls ffmpeg internally)
+    """
+    import numpy as np
+
+    # ── Strategy 1: pydub ────────────────────────────────────────────────────
+    try:
+        from pydub import AudioSegment
+        import shutil as _shutil
+        # Explicitly point pydub at the ffmpeg binary in case PATH isn't updated yet
+        _ffmpeg = _shutil.which("ffmpeg")
+        if _ffmpeg:
+            AudioSegment.converter = _ffmpeg
+            AudioSegment.ffmpeg = _ffmpeg
+            AudioSegment.ffprobe = _ffmpeg.replace("ffmpeg.exe", "ffprobe.exe").replace("ffmpeg", "ffprobe")
+        seg = AudioSegment.from_file(raw_path)
+        seg = seg.set_channels(1).set_frame_rate(16000).set_sample_width(2)
+        seg.export(wav_path, format="wav")
+        print("✅ pydub conversion succeeded")
+        return _run_whisper_on_wav(wav_path)
+    except Exception as e1:
+        print(f"⚠️  pydub failed: {e1}")
+
+    # ── Strategy 2: ffmpeg subprocess ────────────────────────────────────────
+    try:
+        import subprocess
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", raw_path,
+                "-ar", "16000", "-ac", "1", "-sample_fmt", "s16",
+                wav_path
+            ],
+            capture_output=True, timeout=30
+        )
+        if result.returncode == 0:
+            print("✅ ffmpeg subprocess conversion succeeded")
+            return _run_whisper_on_wav(wav_path)
+        else:
+            print(f"⚠️  ffmpeg subprocess failed: {result.stderr.decode(errors='replace')}")
+    except FileNotFoundError:
+        print("⚠️  ffmpeg not found on PATH")
+    except Exception as e2:
+        print(f"⚠️  ffmpeg subprocess error: {e2}")
+
+    # ── Strategy 3: feed raw file directly to Whisper pipeline ───────────────
+    # transformers' pipeline accepts a file path and calls ffmpeg internally
+    print("⚠️  Falling back to direct Whisper pipeline on raw file")
+    from speech_to_text import get_asr_pipe
+    asr = get_asr_pipe()
+    res = asr(raw_path, generate_kwargs={"task": "transcribe"}, chunk_length_s=30, stride_length_s=5)
+    raw_text = (res.get("text") or "").strip()
+    return raw_text
+
+
+def _run_whisper_on_wav(wav_path: str) -> str:
+    """Load a PCM WAV with soundfile and run Whisper on it."""
+    import numpy as np
+    import soundfile as sf
+    from speech_to_text import get_asr_pipe, SAMPLING_RATE, _resample_linear
+
+    samples, sr = sf.read(wav_path, dtype="float32", always_2d=False)
+    if samples.ndim > 1:
+        samples = samples.mean(axis=1)
+    samples = samples.astype(np.float32, copy=False)
+    if sr != SAMPLING_RATE:
+        samples = _resample_linear(samples, sr, SAMPLING_RATE)
+
+    pad = int(0.5 * SAMPLING_RATE)
+    samples = np.concatenate([np.zeros(pad, dtype=np.float32), samples, np.zeros(pad, dtype=np.float32)])
+
+    asr = get_asr_pipe()
+    res = asr(samples, generate_kwargs={"task": "transcribe"}, chunk_length_s=30, stride_length_s=5)
+    return (res.get("text") or "").strip()
 
 if __name__ == '__main__':
     print("=" * 60)
