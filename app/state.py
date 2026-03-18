@@ -58,13 +58,13 @@ class AppState:
         return {"Small": 14, "Medium": 16, "Large": 20}[self.font_size]
 
     def bg_color(self) -> str:
-        return "#FFFFFF" if self.theme_mode == "Light" else "#121212"
+        return "#F5F3FF" if self.theme_mode == "Light" else "#0F0B1A"
 
     def text_color(self) -> str:
-        return "#000000" if self.theme_mode == "Light" else "#FFFFFF"
+        return "#1E1B2E" if self.theme_mode == "Light" else "#EDE9FE"
 
     def surface_color(self) -> str:
-        return "#F5F5F5" if self.theme_mode == "Light" else "#1E1E1E"
+        return "#EDE9FE" if self.theme_mode == "Light" else "#1C1730"
 
 
 def load_state(username: str) -> AppState:

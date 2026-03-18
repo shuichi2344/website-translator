@@ -3,7 +3,7 @@ from __future__ import annotations
 import flet as ft
 
 from app.state import AppState
-from app.components.theme import ACCENT, ACCENT_DARK
+from app.components.theme import ACCENT, ACCENT_DARK, accent_gradient
 
 
 def primary_button(
@@ -12,18 +12,19 @@ def primary_button(
     width: int = 280,
     state: AppState = None,
 ) -> ft.ElevatedButton:
-    """Accessible primary button — min 52px height, min 200px width, accent bg."""
-    bgcolor = ACCENT_DARK if (state and state.theme_mode == "Dark") else ACCENT
+    """Accessible primary button — min 52px height, min 200px width, gradient bg."""
+    dark = state and state.theme_mode == "Dark"
+    bgcolor = ACCENT_DARK if dark else ACCENT
     return ft.ElevatedButton(
         text=label,
         on_click=on_click,
         width=max(width, 200),
         style=ft.ButtonStyle(
             bgcolor=bgcolor,
-            color=ft.colors.WHITE if bgcolor == "#000000" else ft.colors.BLACK,
+            color=ft.colors.WHITE,
             shape=ft.RoundedRectangleBorder(radius=8),
             padding=ft.padding.symmetric(vertical=14, horizontal=24),
-            side=ft.BorderSide(width=2, color=bgcolor),
+            side=ft.BorderSide(width=0, color=ft.colors.TRANSPARENT),
         ),
         height=56,
     )

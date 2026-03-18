@@ -142,6 +142,11 @@ def build_login_view(page: ft.Page, state: AppState) -> ft.View:
                 alignment=ft.alignment.center,
                 expand=True,
                 padding=ft.padding.symmetric(horizontal=24, vertical=40),
+                gradient=ft.LinearGradient(
+                    begin=ft.alignment.top_center,
+                    end=ft.alignment.bottom_center,
+                    colors=["#F5F3FF", "#EFF6FF"] if state.theme_mode == "Light" else ["#1A0F2E", "#0D1B3E"],
+                ),
             )
         ],
         bgcolor=state.bg_color(),
