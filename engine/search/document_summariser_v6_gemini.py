@@ -1086,12 +1086,12 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
             
             prompt = f"""Answer the following question based on the provided context. Use simple language that a 10-year-old can understand.
 
-Question: {question}
+                    Question: {question}
 
-Context:
-{context[:8000]}
+                    Context:
+                    {context[:8000]}
 
-Answer (in simple, clear language):"""
+                    Answer (in simple, clear language, - Do NOT include titles, headers, or bold text (**) ):"""
             
             response = client.models.generate_content(
                 model=self.model,
