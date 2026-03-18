@@ -75,5 +75,7 @@ def process_voice_result(dialect, question, query):
         print("Make sure your GOOGLE_API_KEY is set correctly in the .env file.")
 
     # Convert text to speech
-    print("\nSpeaking the answer...")
-    asyncio.run(speak_answer(final_answer))
+    # print("\nSpeaking the answer...")
+    # asyncio.run(speak_answer(final_answer))
+
+    return final_answer

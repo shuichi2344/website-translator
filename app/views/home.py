@@ -8,6 +8,7 @@ from app.state import AppState
 from app.components.theme import ACCENT, ACCENT_DARK
 from engine.speech.speech_to_text import create_session
 from engine.speech.main import process_voice_result
+from engine.speech.text_to_speech import speak_answer
 
 def is_valid_url(s: str) -> bool:
     """Return True iff *s* starts with 'http://' or 'https://'."""
@@ -33,6 +34,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     selected_file: list = [None]  # file path/name after picker
     url_valid: list = [False]     # True when URL passes validation
     is_recording: list = [False]  # True while STT is active
+    is_processing: list = [False] # True while voice result is being processed
 
     accent = ACCENT_DARK if state.theme_mode == "Dark" else ACCENT
 
@@ -480,6 +482,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def _start_recording(_):
         if (chat_field.value or "").strip():
             return
+        if is_processing[0]:
+            return
 
         is_recording[0] = True
 
@@ -510,6 +514,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         threading.Timer(0.6, _pulse, kwargs={"expand": not expand}).start()
 
     def _stop_recording(_):
+        if is_processing[0]:
+            return
         was_recording = is_recording[0]
         is_recording[0] = False
 
@@ -533,14 +539,33 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 question = results.get("question")
                 query = results.get("query")
 
+                # Show processing state in UI
+                def set_processing():
+                    is_processing[0] = True
+                    chat_field.hint_text = "Processing..."
+                    mic_icon.name = ft.icons.STOP_ROUNDED
+                    mic_circle.bgcolor = ft.colors.GREY_400
+                    page.update()
+
+                if hasattr(page, "call_from_thread"):
+                    page.call_from_thread(set_processing)
+                else:
+                    set_processing()
+
                 # ✅ CALL YOUR MAIN LOGIC HERE
                 response = process_voice_result(dialect, question, query)
 
                 # 👉 Update UI safely
                 def update_ui():
-                    # You can push into chat UI instead
+                    is_processing[0] = False
+                    chat_field.hint_text = "Ask a question..."
+                    mic_icon.name = ft.icons.MIC_ROUNDED
+                    mic_circle.bgcolor = accent
                     chat_field.value = question or ""
-                    
+
+                    if response:
+                        _show_result_card(response)
+
                     print("Dialect:", dialect)
                     print("Question:", question)
                     print("Query:", query)
@@ -548,11 +573,19 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
                     page.update()
 
-                # Flet API compatibility: `call_from_thread` doesn't exist in all versions.
                 if hasattr(page, "call_from_thread"):
                     page.call_from_thread(update_ui)
                 else:
                     update_ui()
+
+                # Run TTS after UI has been updated
+                if response:
+                    import asyncio as _asyncio
+                    loop = _asyncio.new_event_loop()
+                    try:
+                        loop.run_until_complete(speak_answer(response))
+                    finally:
+                        loop.close()
 
             # `page.run_thread()` is not available in all Flet versions.
             # Use a plain daemon thread and marshal UI updates via `call_from_thread`.
@@ -591,6 +624,60 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         content=mic_btn,
         margin=ft.margin.only(left=5, right=16, bottom=8, top=8),
     )
+
+    # ------------------------------------------------------------------ #
+    #  Result card (shown above chat bar after voice processing)          #
+    # ------------------------------------------------------------------ #
+
+    result_card = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.icons.AUTO_AWESOME_OUTLINED, color=accent, size=16),
+                        ft.Text(
+                            "Response",
+                            size=state.font_sp() - 1,
+                            weight=ft.FontWeight.BOLD,
+                            color=accent,
+                        ),
+                        ft.Container(expand=True),
+                        ft.IconButton(
+                            icon=ft.icons.CLOSE,
+                            icon_color=state.text_color(),
+                            icon_size=16,
+                            tooltip="Dismiss",
+                            on_click=lambda _: _dismiss_result_card(),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=6,
+                ),
+                ft.Text(
+                    "",
+                    size=state.font_sp(),
+                    color=state.text_color(),
+                    selectable=True,
+                ),
+            ],
+            spacing=6,
+        ),
+        bgcolor=state.surface_color(),
+        border=ft.border.all(2, accent),
+        border_radius=16,
+        padding=ft.padding.symmetric(horizontal=16, vertical=10),
+        margin=ft.margin.symmetric(horizontal=16),
+        visible=False,
+    )
+
+    def _show_result_card(text: str):
+        result_card.content.controls[1].value = text
+        result_card.visible = True
+        page.update()
+
+    def _dismiss_result_card():
+        result_card.visible = False
+        page.update()
 
     # ------------------------------------------------------------------ #
     #  PTT Session + full pipeline                                        #
@@ -723,6 +810,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     ),
                     chat_list,          # expands to fill remaining space
                     panel_container,
+                    result_card,
                     ft.Row(
                         [chat_bar, mic_container],
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

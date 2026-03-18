@@ -91,7 +91,7 @@ def llm_process(text, task):
             f"1. If the country is not specified, assume the context is {country}.\n"
             "2. Output must be 100 percent English. Translate all dialect words.\n"
             f"Example: 'renew license' -> {country} driving license renewal requirements online\n"
-            "Output ONLY the keywords."
+            "Output ONLY the keywords, no asterisk or other symbols."
         )
 
     prompt = f"<|im_start|>system\n{sys_msg}<|im_end|>\n<|im_start|>user\nText: {text}<|im_end|>\n<|im_start|>assistant\n"

@@ -22,4 +22,4 @@ Thumbs.db
 *.swp
 
 # database
-chroma_db
+chroma_db/
