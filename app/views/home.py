@@ -105,6 +105,84 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     )
 
     # ------------------------------------------------------------------ #
+    #  Shared ASEAN language selector (used in both panels)              #
+    # ------------------------------------------------------------------ #
+
+    ASEAN_LANGUAGES = [
+        "English", "Malay", "Indonesian", "Thai", "Vietnamese",
+        "Filipino", "Burmese", "Khmer", "Lao", "Tamil", "Chinese (Simplified)",
+    ]
+
+    doc_lang_dropdown = ft.Dropdown(
+        label="Target Language",
+        hint_text="Select output language",
+        options=[ft.dropdown.Option(lang) for lang in ASEAN_LANGUAGES],
+        value="English",
+        border_color=accent,
+        border_radius=8,
+        border_width=2,
+        bgcolor=state.surface_color(),
+        color=state.text_color(),
+        label_style=ft.TextStyle(color=accent, size=state.font_sp() - 1),
+        text_style=ft.TextStyle(color=state.text_color(), size=state.font_sp()),
+    )
+
+    web_lang_dropdown = ft.Dropdown(
+        label="Target Language",
+        hint_text="Select output language",
+        options=[ft.dropdown.Option(lang) for lang in ASEAN_LANGUAGES],
+        value="English",
+        border_color=accent,
+        border_radius=8,
+        border_width=2,
+        bgcolor=state.surface_color(),
+        color=state.text_color(),
+        label_style=ft.TextStyle(color=accent, size=state.font_sp() - 1),
+        text_style=ft.TextStyle(color=state.text_color(), size=state.font_sp()),
+    )
+
+    # ------------------------------------------------------------------ #
+    #  Notes helper — info icon with tooltip on hover                    #
+    # ------------------------------------------------------------------ #
+
+    def _info_tooltip(items: list[str]) -> ft.Tooltip:
+        NOTE_COLOR = ft.colors.with_opacity(0.85, state.text_color())
+        lines = "\n".join(f"• {item}" for item in items)
+        return ft.Tooltip(
+            message=lines,
+            content=ft.Icon(
+                ft.icons.INFO_OUTLINE_ROUNDED,
+                color=accent,
+                size=18,
+            ),
+            bgcolor=state.surface_color(),
+            text_style=ft.TextStyle(color=NOTE_COLOR, size=state.font_sp() - 2),
+            border_radius=10,
+            padding=ft.padding.symmetric(horizontal=12, vertical=10),
+            wait_duration=0,
+        )
+
+    _DOC_NOTES = [
+        "Maximum file size: 50MB",
+        "Docling + Google Gemini 2.0 Flash — Advanced AI summarization",
+        "RAG Q&A: Ask specific questions about documents or websites",
+        "Automatic language detection and complex table recognition",
+        "Supports PDF and images (PNG, JPG, JPEG, BMP, TIFF)",
+        "Website summarization extracts main content and crawls 3 sublinks",
+        "Embeddings cached in ChromaDB for fast repeated queries",
+    ]
+
+    _WEB_NOTES = [
+        "Maximum file size: 50MB",
+        "Docling + Google Gemini 2.0 Flash — Advanced AI summarization",
+        "RAG Q&A: Ask specific questions about documents or websites",
+        "Automatic language detection and complex table recognition",
+        "Supports PDF and images (PNG, JPG, JPEG, BMP, TIFF)",
+        "Website summarization extracts main content and crawls 3 sublinks",
+        "Embeddings cached in ChromaDB for fast repeated queries",
+    ]
+
+    # ------------------------------------------------------------------ #
     #  Document Panel (Task 3.1)                                          #
     # ------------------------------------------------------------------ #
 
@@ -190,13 +268,18 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     document_panel = ft.Container(
         content=ft.Column(
             [
-                ft.Row([drop_zone]),  # Row forces drop_zone to fill width
+                ft.Row(
+                    [ft.Container(expand=True), _info_tooltip(_DOC_NOTES)],
+                    alignment=ft.MainAxisAlignment.END,
+                ),
+                ft.Row([drop_zone]),
                 ft.Row(
                     [file_name_text, clear_file_btn],
                     alignment=ft.MainAxisAlignment.CENTER,
                     spacing=4,
                 ),
                 file_error_text,
+                doc_lang_dropdown,
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
@@ -239,9 +322,14 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     web_panel = ft.Container(
         content=ft.Column(
             [
+                ft.Row(
+                    [ft.Container(expand=True), _info_tooltip(_WEB_NOTES)],
+                    alignment=ft.MainAxisAlignment.END,
+                ),
                 url_field,
                 url_error_text,
                 progress_ring,
+                web_lang_dropdown,
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
@@ -251,40 +339,54 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     )
 
     # ------------------------------------------------------------------ #
-    #  Summarise button                                                    #
+    #  Action buttons (per mode)                                          #
     # ------------------------------------------------------------------ #
 
-    def _can_summarise() -> bool:
-        if active_mode[0] == "document":
-            return selected_file[0] is not None
-        if active_mode[0] == "web":
-            return url_valid[0]
-        return False
+    def _action_btn(text, icon, on_click_fn) -> ft.ElevatedButton:
+        return ft.ElevatedButton(
+            text=text,
+            icon=icon,
+            on_click=on_click_fn,
+            visible=False,
+            style=ft.ButtonStyle(
+                bgcolor=accent,
+                color=ft.colors.WHITE if accent == "#000000" else ft.colors.BLACK,
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=ft.padding.symmetric(vertical=12, horizontal=20),
+            ),
+            height=48,
+            expand=True,
+        )
 
-    def on_summarise(_):
-        if active_mode[0] == "document":
-            _add_bubble(f"Summarising document: {selected_file[0]}", "user")
-        elif active_mode[0] == "web":
-            _add_bubble(f"Summarising: {url_field.value}", "user")
+    def on_doc_summarise(_):
+        _add_bubble(f"Summarising document: {selected_file[0]}", "user")
         page.update()
 
-    summarise_btn = ft.ElevatedButton(
-        text="Summarise",
-        icon=ft.icons.AUTO_AWESOME_OUTLINED,
-        on_click=on_summarise,
-        visible=False,
-        style=ft.ButtonStyle(
-            bgcolor=accent,
-            color=ft.colors.WHITE if accent == "#000000" else ft.colors.BLACK,
-            shape=ft.RoundedRectangleBorder(radius=8),
-            padding=ft.padding.symmetric(vertical=14, horizontal=24),
-        ),
-        height=52,
-        width=200,
-    )
+    def on_doc_ask(_):
+        chat_field.focus()
+        chat_field.hint_text = "Ask a question about the document..."
+        page.update()
+
+    def on_web_summarise(_):
+        _add_bubble(f"Summarising: {url_field.value}", "user")
+        page.update()
+
+    def on_web_ask(_):
+        chat_field.focus()
+        chat_field.hint_text = "Ask a question about the website..."
+        page.update()
+
+    doc_summarise_btn  = _action_btn("Summarize Document", ft.icons.AUTO_AWESOME_OUTLINED, on_doc_summarise)
+    doc_ask_btn        = _action_btn("Ask a Question",     ft.icons.CHAT_OUTLINED,          on_doc_ask)
+    web_summarise_btn  = _action_btn("Summarize Website",  ft.icons.AUTO_AWESOME_OUTLINED,  on_web_summarise)
+    web_ask_btn        = _action_btn("Ask a Question",     ft.icons.CHAT_OUTLINED,          on_web_ask)
 
     def _refresh_summarise_btn():
-        summarise_btn.visible = _can_summarise()
+        has_input = (active_mode[0] == "document" and selected_file[0] is not None) or \
+                    (active_mode[0] == "web" and url_valid[0])
+        # Summarize buttons only enabled when there's valid input
+        doc_summarise_btn.disabled = not has_input
+        web_summarise_btn.disabled = not has_input
         page.update()
 
     # ------------------------------------------------------------------ #
@@ -301,8 +403,10 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 document_panel,
                 web_panel,
                 ft.Container(
-                    content=summarise_btn,
-                    alignment=ft.alignment.center,
+                    content=ft.Row(
+                        [doc_summarise_btn, doc_ask_btn, web_summarise_btn, web_ask_btn],
+                        spacing=8,
+                    ),
                     padding=ft.padding.only(top=4, bottom=8),
                 ),
             ],
@@ -312,7 +416,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         bgcolor=PANEL_BG,
         border_radius=ft.border_radius.only(top_left=20, top_right=20),
         padding=ft.padding.symmetric(horizontal=16, vertical=12),
-        offset=ft.transform.Offset(0, 1),  # start hidden below
+        offset=ft.transform.Offset(0, 1),
         animate_offset=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
         visible=False,
     )
@@ -329,7 +433,18 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         document_panel.visible = mode == "document"
         web_panel.visible = mode == "web"
         if mode is None:
-            summarise_btn.visible = False
+            doc_summarise_btn.visible = False
+            doc_ask_btn.visible       = False
+            web_summarise_btn.visible = False
+            web_ask_btn.visible       = False
+        else:
+            doc_summarise_btn.visible = mode == "document"
+            doc_ask_btn.visible       = mode == "document"
+            web_summarise_btn.visible = mode == "web"
+            web_ask_btn.visible       = mode == "web"
+            # Summarize disabled until valid input provided
+            doc_summarise_btn.disabled = selected_file[0] is None
+            web_summarise_btn.disabled = not url_valid[0]
         # Slide up when showing, slide down when hiding
         if mode is not None:
             panel_container.visible = True
