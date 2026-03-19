@@ -59,8 +59,64 @@ function showFloatingButton(url) {
   `;
 
   document.head.appendChild(style);
-  fab.addEventListener('click', () => generateAndShowSummary(url));
+  fab.addEventListener('click', () => showLanguagePickerPanel(url));
   document.body.appendChild(fab);
+}
+
+// ─── Language picker panel (shown before summarising) ────────────────────────
+const LANG_OPTIONS = [
+  { value: 'en',    label: 'English' },
+  { value: 'ms',    label: 'Malay' },
+  { value: 'id',    label: 'Indonesian' },
+  { value: 'vi',    label: 'Vietnamese' },
+  { value: 'th',    label: 'Thai' },
+  { value: 'zh-cn', label: 'Chinese (Simplified)' },
+  { value: 'zh-tw', label: 'Chinese (Traditional)' },
+  { value: 'ta',    label: 'Tamil' },
+  { value: 'tl',    label: 'Tagalog / Filipino' },
+  { value: 'my',    label: 'Burmese / Myanmar' },
+  { value: 'km',    label: 'Khmer' },
+  { value: 'lo',    label: 'Lao' },
+];
+
+function showLanguagePickerPanel(url) {
+  removeExistingPanel();
+  injectPanelStyles();
+
+  summaryPanel = document.createElement('div');
+  summaryPanel.id = 'bridge-panel';
+  summaryPanel.innerHTML = `
+    <div id="bridge-panel-inner">
+      <div id="bridge-panel-header">
+        <div id="bridge-panel-title">📄 Bridge Summary</div>
+        <button id="bridge-close-btn" aria-label="Close">✕</button>
+      </div>
+      <div id="bridge-scroll-area">
+        <div id="bridge-panel-body">
+          <p style="font-size:14px;font-weight:600;color:#333;margin:0 0 14px;">Choose your summary language:</p>
+          <div id="bridge-lang-grid"></div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(summaryPanel);
+  document.getElementById('bridge-close-btn').addEventListener('click', removeExistingPanel);
+
+  // Build language grid
+  const grid = document.getElementById('bridge-lang-grid');
+  chrome.storage.sync.get('targetLang', ({ targetLang: saved = 'en' }) => {
+    LANG_OPTIONS.forEach(({ value, label }) => {
+      const btn = document.createElement('button');
+      btn.className = 'bridge-lang-pick-btn' + (value === saved ? ' selected' : '');
+      btn.textContent = label;
+      btn.dataset.value = value;
+      btn.addEventListener('click', () => {
+        chrome.storage.sync.set({ targetLang: value });
+        generateAndShowSummary(url);
+      });
+      grid.appendChild(btn);
+    });
+  });
 }
 
 // ─── Fetch summary and display panel ─────────────────────────────────────────
@@ -401,6 +457,34 @@ function injectPanelStyles() {
       0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.4); }
       50%       { box-shadow: 0 0 0 6px rgba(220,38,38,0); }
     }
+    /* ── Language picker grid ── */
+    #bridge-lang-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .bridge-lang-pick-btn {
+      padding: 10px 8px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 10px;
+      background: #fff;
+      color: #333;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.15s, background 0.15s;
+      font-family: inherit;
+    }
+    .bridge-lang-pick-btn:hover {
+      border-color: #7C3AED;
+      background: #f5f0ff;
+    }
+    .bridge-lang-pick-btn.selected {
+      border-color: #7C3AED;
+      background: linear-gradient(135deg, #7C3AED 0%, #2563EB 100%);
+      color: #fff;
+    }
   `;
   document.head.appendChild(s);
 }
@@ -465,9 +549,77 @@ function showSummaryPanel(data) {
     });
   });
 
-  document.getElementById('bridge-speak-btn').addEventListener('click', () => {
-    speechSynthesis.cancel();
-    speechSynthesis.speak(new SpeechSynthesisUtterance(data.summary));
+  document.getElementById('bridge-speak-btn').addEventListener('click', async () => {
+    const speakBtn = document.getElementById('bridge-speak-btn');
+    
+    // Stop any existing audio
+    if (window.bridgeAudio) {
+      window.bridgeAudio.pause();
+      window.bridgeAudio = null;
+    }
+
+    const sel = document.getElementById('bridge-lang-select');
+    const langCode = sel ? sel.value : 'en';
+
+    console.log('[Bridge TTS] Requesting TTS for lang:', langCode);
+
+    // Disable button and show loading state
+    speakBtn.disabled = true;
+    speakBtn.style.opacity = '0.5';
+    speakBtn.style.cursor = 'not-allowed';
+    const originalText = speakBtn.textContent;
+    speakBtn.textContent = '🔄 Loading...';
+
+    try {
+      const response = await fetch('http://localhost:5000/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: data.summary,
+          lang: langCode
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`TTS server error: ${response.status}`);
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      window.bridgeAudio = new Audio(audioUrl);
+      window.bridgeAudio.onplay = () => {
+        console.log('[Bridge TTS] Playback started');
+        speakBtn.textContent = '🔊 Playing...';
+      };
+      window.bridgeAudio.onended = () => {
+        console.log('[Bridge TTS] Playback finished');
+        URL.revokeObjectURL(audioUrl);
+        // Re-enable button
+        speakBtn.disabled = false;
+        speakBtn.style.opacity = '1';
+        speakBtn.style.cursor = 'pointer';
+        speakBtn.textContent = originalText;
+      };
+      window.bridgeAudio.onerror = (e) => {
+        console.error('[Bridge TTS] Audio error:', e);
+        // Re-enable button on error
+        speakBtn.disabled = false;
+        speakBtn.style.opacity = '1';
+        speakBtn.style.cursor = 'pointer';
+        speakBtn.textContent = originalText;
+      };
+      
+      await window.bridgeAudio.play();
+    } catch (error) {
+      console.error('[Bridge TTS] Error:', error);
+      alert('Text-to-speech failed. Make sure the Flask server is running at http://localhost:5000');
+      // Re-enable button on error
+      speakBtn.disabled = false;
+      speakBtn.style.opacity = '1';
+      speakBtn.style.cursor = 'pointer';
+      speakBtn.textContent = originalText;
+    }
   });
 
   // ── Show Q&A input bar and wire up events ──

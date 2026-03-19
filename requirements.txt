@@ -5,6 +5,7 @@ pytest
 
 # Web server
 flask
+flask-cors
 werkzeug
 python-dotenv
 
@@ -34,6 +35,7 @@ firecrawl-py
 soundfile
 numpy
 pydub
+gTTS
 
 # Optional (push-to-talk desktop mode only)
 pynput

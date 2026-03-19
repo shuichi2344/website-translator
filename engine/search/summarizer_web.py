@@ -3,13 +3,23 @@ Document & Website Summarizer - Web Interface
 """
 
 import sys
-from flask import Flask, render_template_string, request, jsonify, send_file
+from flask import Flask, render_template_string, request, jsonify, send_file, Response
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
 from dotenv import load_dotenv
 from document_summariser_v6_gemini import DocumentSummarizer
 from pathlib import Path
 from speech_to_text import transcribe_audio
+import io
+
+# TTS imports
+try:
+    from gtts import gTTS
+    GTTS_AVAILABLE = True
+except ImportError:
+    GTTS_AVAILABLE = False
+    print("⚠️  gTTS not available - text-to-speech will be disabled")
 
 # Windows consoles are often cp1252, which crashes on emoji output from dependencies.
 # Make stdout/stderr Unicode-safe by replacing unencodable characters.
@@ -25,6 +35,7 @@ except Exception:
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
 
@@ -1170,11 +1181,80 @@ def _run_whisper_on_wav(wav_path: str) -> str:
     res = asr(samples, generate_kwargs={"task": "transcribe"}, chunk_length_s=30, stride_length_s=5)
     return (res.get("text") or "").strip()
 
+@app.route('/tts', methods=['POST'])
+def text_to_speech():
+    """
+    Server-side TTS using gTTS (Google Text-to-Speech).
+    Supports all ASEAN languages. Returns audio/mpeg.
+    Accepts JSON: { "text": "...", "lang": "ta" }
+    """
+    if not GTTS_AVAILABLE:
+        print("❌ gTTS not available")
+        return jsonify({'success': False, 'error': 'gTTS module not installed'}), 500
+
+    try:
+        data = request.get_json(force=True)
+        text = (data.get('text') or '').strip()
+        lang = (data.get('lang') or 'en').strip()
+
+        if not text:
+            print("❌ No text provided")
+            return jsonify({'success': False, 'error': 'No text provided'}), 400
+
+        print(f"🔊 TTS request: lang={lang}, text_length={len(text)}")
+        print(f"   First 100 chars: {text[:100]}")
+
+        # gTTS lang code map — handles variants
+        # Supported: en, ms, id, vi, th, zh-CN, zh-TW, ta, tl, my, km
+        # NOT supported by gTTS: lo (Lao) - will fall back to English
+        lang_map = {
+            'zh-cn': 'zh-CN',
+            'zh-tw': 'zh-TW',
+            'tl':    'tl',   # Filipino/Tagalog
+            'ta':    'ta',   # Tamil
+            'my':    'my',   # Burmese/Myanmar
+            'km':    'km',   # Khmer
+            'lo':    'en',   # Lao → fallback to English (not supported by gTTS)
+            'vi':    'vi',   # Vietnamese
+            'th':    'th',   # Thai
+            'id':    'id',   # Indonesian
+            'ms':    'ms',   # Malay
+            'en':    'en',   # English
+        }
+        gtts_lang = lang_map.get(lang, 'en')  # Default to English if unknown
+        
+        if lang == 'lo':
+            print(f"   ⚠️  Lao (lo) not supported by gTTS, falling back to English")
+        
+        print(f"   Using gTTS lang code: {gtts_lang}")
+
+        print("   Creating gTTS object...")
+        tts = gTTS(text=text, lang=gtts_lang, slow=False)
+        
+        print("   Generating audio...")
+        buf = io.BytesIO()
+        tts.write_to_fp(buf)
+        buf.seek(0)
+        audio_bytes = buf.read()
+
+        print(f"✅ TTS generated {len(audio_bytes)} bytes")
+
+        return Response(audio_bytes, mimetype='audio/mpeg')
+
+    except Exception as e:
+        print(f"❌ TTS error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("=" * 60)
     print("Bridge Document Summarizer - Web Interface")
     print("Docling + Google Gemini 2.0 Flash")
     print("=" * 60)
+    print(f"\nPython executable: {sys.executable}")
+    print(f"gTTS available: {GTTS_AVAILABLE}")
     print("\nServer starting...")
     print("Open your browser and go to: http://localhost:5000")
     print("\nPress Ctrl+C to stop the server\n")
