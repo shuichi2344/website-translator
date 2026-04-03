@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\date_picker.py
-# hypothesis_version: 6.151.9
-
-['bool', 'calendar', 'calendarOnly', 'cancelText', 'change', 'confirmText', 'currentDate', 'datePickerEntryMode', 'datePickerMode', 'datepicker', 'day', 'dismiss', 'errorFormatText', 'errorInvalidText', 'fieldHintText', 'fieldLabelText', 'firstDate', 'helpText', 'input', 'inputOnly', 'keyboardType', 'lastDate', 'open', 'value', 'year']

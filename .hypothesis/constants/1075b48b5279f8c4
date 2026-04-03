@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\openid\connect\core\grant_types\base.py
-# hypothesis_version: 6.151.9
-
-['=', 'access_token', 'at_hash', 'aud', 'c_hash', 'claims', 'code', 'display', 'iat', 'id_token', 'id_token_hint', 'login_hint', 'nonce', 'none', 'openid', 'prompt', 'refresh_token', 'response_types', 'split', 'ui_locales']

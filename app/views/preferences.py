@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import sys
+import os
 import flet as ft
 
 from app.state import AppState, PreferencesSaveError, save_state
 from app.components.controls import primary_button
 from app.components.theme import ACCENT, ACCENT_DARK
+
+# Add parent directory to path for database imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+# Database imports
+try:
+    from engine.database.auth_handler import AuthHandler
+    auth_handler = AuthHandler()
+    DB_AVAILABLE = True
+except Exception as e:
+    print(f"⚠️  Database not available: {e}")
+    auth_handler = None
+    DB_AVAILABLE = False
 
 SUPPORTED_LANGUAGES = [
     "English", "Bahasa Melayu", "Bahasa Indonesia", "Thai", "Vietnamese",
@@ -84,6 +99,22 @@ def build_preferences_view(page: ft.Page, state: AppState) -> ft.View:
         state.country = sel_country[0]
         state.language = sel_language[0]
         state.onboarding_complete = True
+        
+        # Save to database if available
+        if DB_AVAILABLE and auth_handler and state.user_id:
+            try:
+                result = auth_handler.update_user_profile(
+                    user_id=state.user_id,
+                    name=state.username,
+                    country=state.country,
+                    language=state.language
+                )
+                if not result['success']:
+                    print(f"Failed to update database: {result.get('message')}")
+            except Exception as ex:
+                print(f"Database update error: {ex}")
+        
+        # Save to local state file
         try:
             save_state(state)
         except PreferencesSaveError as exc:
@@ -91,6 +122,7 @@ def build_preferences_view(page: ft.Page, state: AppState) -> ft.View:
             error_text.visible = True
             page.update()
             return
+        
         page.go("/home")
 
     confirm_btn.on_click = handle_confirm

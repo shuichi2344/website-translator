@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\bottom_sheet.py
-# hypothesis_version: 6.151.9
-
-['bgColor', 'bool', 'bottomsheet', 'content', 'dismiss', 'dismissible', 'elevation', 'enableDrag', 'isScrollControlled', 'n', 'open', 'showDragHandle', 'useSafeArea']

@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\snack_bar.py
-# hypothesis_version: 6.151.9
-
-['action', 'actionColor', 'behavior', 'bgColor', 'bool', 'closeIconColor', 'content', 'dismissDirection', 'down', 'duration', 'elevation', 'endToStart', 'fixed', 'floating', 'horizontal', 'margin', 'n', 'none', 'open', 'padding', 'showCloseIcon', 'snackbar', 'startToEnd', 'up', 'vertical', 'width']

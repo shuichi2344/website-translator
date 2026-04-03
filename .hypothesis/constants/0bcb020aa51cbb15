@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\endpoints\pre_configured.py
-# hypothesis_version: 6.151.9
-
-['Bearer', 'access_token', 'authorization_code', 'client_credentials', 'code', 'none', 'password', 'refresh_token', 'token']

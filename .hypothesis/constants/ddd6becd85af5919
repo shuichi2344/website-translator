@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\time_picker.py
-# hypothesis_version: 6.151.9
-
-['%H:%M', ':', 'bool', 'cancelText', 'change', 'confirmText', 'dial', 'dialOnly', 'dismiss', 'errorInvalidText', 'helpText', 'hourLabelText', 'input', 'inputOnly', 'minuteLabelText', 'open', 'timePickerEntryMode', 'timepicker', 'value']

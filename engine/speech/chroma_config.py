@@ -3,8 +3,7 @@ ChromaDB Configuration and Management Utilities
 Provides configuration, maintenance, and monitoring tools for the vector database
 """
 
-import chromadb
-from chromadb.config import Settings
+from engine.database.chroma_singleton import get_chroma_client, get_chroma_collection
 import os
 from pathlib import Path
 from datetime import datetime
@@ -35,23 +34,15 @@ class ChromaDBConfig:
         self.collection = None
     
     def get_client(self):
-        """Get or create ChromaDB client"""
+        """Get or create ChromaDB client (using global singleton)"""
         if self.client is None:
-            self.client = chromadb.PersistentClient(
-                path=self.db_path,
-                settings=Settings(
-                    anonymized_telemetry=False,
-                    allow_reset=True,
-                    is_persistent=True
-                )
-            )
+            self.client = get_chroma_client()
         return self.client
     
     def get_collection(self):
-        """Get or create collection"""
+        """Get or create collection (using global singleton)"""
         if self.collection is None:
-            client = self.get_client()
-            self.collection = client.get_or_create_collection(
+            self.collection = get_chroma_collection(
                 name=self.collection_name,
                 metadata={
                     "description": "Document chunks with EmbeddingGemma embeddings",

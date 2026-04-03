@@ -7,11 +7,37 @@ import flet as ft
 
 from app.state import AppState
 from app.components.theme import ACCENT, ACCENT_DARK, accent_gradient, GRAD_START, GRAD_END, GRAD_START_DARK, GRAD_END_DARK
-from engine.speech.speech_to_text import create_session
-from engine.speech.main import process_voice_result
-from engine.speech.text_to_speech import speak_answer
-from engine.search.document_summariser_v6_gemini import DocumentSummarizer
-from engine.search.speech_to_text import transcribe_audio as search_transcribe
+from app.preloader import get_modules
+
+# Import RAG integration for message storage (singleton pattern)
+_rag_instance = None
+RAG_AVAILABLE = False
+
+def get_rag_instance():
+    """Get or create RAG instance (singleton)"""
+    global _rag_instance, RAG_AVAILABLE
+    if _rag_instance is None:
+        try:
+            from engine.database.rag_integration import RAGIntegration
+            _rag_instance = RAGIntegration()
+            RAG_AVAILABLE = True
+            print("✅ RAG integration initialized")
+        except Exception as e:
+            print(f"⚠️ RAG integration not available: {e}")
+            _rag_instance = None
+            RAG_AVAILABLE = False
+    return _rag_instance
+
+def _get_preloaded_modules():
+    """Get preloaded modules from cache"""
+    modules = get_modules()
+    return (
+        modules.get('create_session'),
+        modules.get('process_voice_result'),
+        modules.get('speak_answer'),
+        modules.get('DocumentSummarizer'),
+        modules.get('transcribe_audio')
+    )
 
 def is_valid_url(s: str) -> bool:
     """Return True iff *s* starts with 'http://' or 'https://'."""
@@ -26,8 +52,25 @@ def is_valid_extension(ext: str) -> bool:
 def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     """Build the /home view — Progressive Disclosure dashboard."""
 
+    # Initialize session from preloaded modules
     if state.session is None:
-        state.session, state.stream = create_session()
+        create_session, _, _, _, _ = _get_preloaded_modules()
+        if create_session:
+            state.session, state.stream = create_session()
+    
+    # Initialize or get conversation
+    from datetime import datetime
+    rag = get_rag_instance()
+    if RAG_AVAILABLE and rag and state.user_id:
+        if not state.conversation_id:
+            # Create new conversation for this session
+            state.conversation_id = rag.create_conversation(
+                user_id=state.user_id,
+                title=f"Chat - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            )
+            print(f"✅ Created conversation: {state.conversation_id}")
+        else:
+            print(f"✅ Using existing conversation: {state.conversation_id}")
 
     session = state.session
     stream = state.stream
@@ -436,11 +479,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         filepath = selected_file[0]
         lang_code = LANG_CODE_MAP.get(doc_lang_dropdown.value or "English", "en")
         _add_bubble(f"Summarising document: {selected_file_name[0]}", "user")
+        # Add thinking indicator
+        thinking_bubble = _add_bubble("Thinking…", "status")
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Use preloaded DocumentSummarizer
+                _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
                 result = summarizer.process_document(filepath)
                 if result:
@@ -449,10 +496,23 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     summ = result.get("summary_word_count", 0)
                     reduction = round(100 - (summ / orig * 100)) if orig else 0
                     _ui_call(lambda: set_mode(None))
+                    # Remove thinking bubble before adding result
+                    def _remove_thinking():
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                    _ui_call(_remove_thinking)
                     _add_bubble_safe(f"📄 Document Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "result")
                 else:
+                    def _remove_thinking():
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                    _ui_call(_remove_thinking)
                     _add_bubble_safe("⚠️ Failed to process document.", "status")
             except Exception as exc:
+                def _remove_thinking():
+                    if thinking_bubble in chat_list.controls:
+                        chat_list.controls.remove(thinking_bubble)
+                _ui_call(_remove_thinking)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -470,20 +530,37 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             return
 
         _add_bubble(question, "user")
+        # Add thinking indicator
+        thinking_bubble = _add_bubble("Thinking…", "status")
         chat_field.value = ""
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Use preloaded DocumentSummarizer
+                _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
                 result = summarizer.rag_qa_document(filepath, question)
                 if result:
                     _ui_call(lambda: set_mode(None))
+                    # Remove thinking bubble before adding result
+                    def _remove_thinking():
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                    _ui_call(_remove_thinking)
                     _add_bubble_safe(result.get("summary", ""), "result")
                 else:
+                    def _remove_thinking():
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                    _ui_call(_remove_thinking)
                     _add_bubble_safe("⚠️ Could not answer that question.", "status")
             except Exception as exc:
+                def _remove_thinking():
+                    if thinking_bubble in chat_list.controls:
+                        chat_list.controls.remove(thinking_bubble)
+                _ui_call(_remove_thinking)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -494,11 +571,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         url = url_field.value or ""
         lang_code = LANG_CODE_MAP.get(web_lang_dropdown.value or "English", "en")
         _add_bubble(f"Summarising: {url}", "user")
+        # Add thinking indicator
+        thinking_bubble = _add_bubble("Thinking…", "status")
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Use preloaded DocumentSummarizer
+                _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
                 result = summarizer.process_website(url, crawl_depth=1, max_sublinks=3)
                 if result:
@@ -507,10 +588,23 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     summ = result.get("summary_word_count", 0)
                     reduction = round(100 - (summ / orig * 100)) if orig else 0
                     _ui_call(lambda: set_mode(None))
+                    # Remove thinking bubble before adding result
+                    def _remove_thinking():
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                    _ui_call(_remove_thinking)
                     _add_bubble_safe(f"🌐 Website Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "result")
                 else:
+                    def _remove_thinking():
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                    _ui_call(_remove_thinking)
                     _add_bubble_safe("⚠️ Failed to process website.", "status")
             except Exception as exc:
+                def _remove_thinking():
+                    if thinking_bubble in chat_list.controls:
+                        chat_list.controls.remove(thinking_bubble)
+                _ui_call(_remove_thinking)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -528,20 +622,37 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             return
 
         _add_bubble(question, "user")
+        # Add thinking indicator
+        thinking_bubble = _add_bubble("Thinking…", "status")
         chat_field.value = ""
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Use preloaded DocumentSummarizer
+                _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
                 result = summarizer.rag_qa_website(url, question)
                 if result:
                     _ui_call(lambda: set_mode(None))
+                    # Remove thinking bubble before adding result
+                    def _remove_thinking():
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                    _ui_call(_remove_thinking)
                     _add_bubble_safe(result.get("summary", ""), "result")
                 else:
+                    def _remove_thinking():
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                    _ui_call(_remove_thinking)
                     _add_bubble_safe("⚠️ Could not answer that question.", "status")
             except Exception as exc:
+                def _remove_thinking():
+                    if thinking_bubble in chat_list.controls:
+                        chat_list.controls.remove(thinking_bubble)
+                _ui_call(_remove_thinking)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -676,11 +787,13 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         auto_scroll=True,
     )
 
-    def _add_bubble(text: str, role: str = "bot") -> None:
+    def _add_bubble(text: str, role: str = "bot", sources: list = None):
         """
         role: "user" | "bot" | "status" | "result"
         result = right-aligned bot response (summarizer/Q&A output)
         status = small centred pill for pipeline progress steps.
+        sources = list of source URLs to display as references
+        Returns the bubble element so it can be removed later.
         """
         if role == "user":
             content = ft.Container(
@@ -717,8 +830,202 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             bubble = ft.Row([content], alignment=ft.MainAxisAlignment.CENTER, expand=True)
 
         else:  # bot
+            # Track TTS state for this bubble
+            is_playing = [False]
+            is_loading = [False]
+            is_paused = [False]
+            audio_file = [None]  # Store temp audio file path
+            
+            # Speaker button
+            def on_speaker_click(e):
+                # If paused, resume
+                if is_paused[0]:
+                    try:
+                        import pygame
+                        pygame.mixer.music.unpause()
+                        is_paused[0] = False
+                        is_playing[0] = True
+                        speaker_btn.text = "⏸️ Pause"
+                        speaker_btn.disabled = False
+                        speaker_btn.style.bgcolor = ft.colors.with_opacity(0.15, accent)
+                        page.update()
+                    except Exception as exc:
+                        print(f"Resume error: {exc}")
+                    return
+                
+                # If playing, pause
+                if is_playing[0]:
+                    try:
+                        import pygame
+                        pygame.mixer.music.pause()
+                        is_paused[0] = True
+                        is_playing[0] = False
+                        speaker_btn.text = "▶️ Resume"
+                        speaker_btn.disabled = False
+                        speaker_btn.style.bgcolor = ft.colors.with_opacity(0.1, accent)
+                        page.update()
+                    except Exception as exc:
+                        print(f"Pause error: {exc}")
+                    return
+                
+                # If loading, ignore
+                if is_loading[0]:
+                    return
+                
+                # Start TTS
+                is_loading[0] = True
+                speaker_btn.text = "🔄 Loading..."
+                speaker_btn.disabled = True
+                speaker_btn.style.bgcolor = ft.colors.with_opacity(0.05, accent)
+                page.update()
+                
+                # Run TTS in background
+                def _speak():
+                    try:
+                        import pygame
+                        import tempfile
+                        import os
+                        import asyncio as _asyncio
+                        import edge_tts
+                        
+                        # Validate text
+                        if not text or not text.strip():
+                            raise ValueError("No text to speak")
+                        
+                        # Initialize pygame mixer if not already
+                        if not pygame.mixer.get_init():
+                            pygame.mixer.init()
+                        
+                        # Generate TTS audio file
+                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+                        audio_file[0] = temp_file.name
+                        temp_file.close()
+                        
+                        # Generate audio using edge-tts with a reliable voice
+                        async def generate_audio():
+                            # Use en-US-AriaNeural (more reliable) or en-GB-SoniaNeural
+                            # List of fallback voices in order of preference
+                            voices = [
+                                "en-US-AriaNeural",
+                                "en-GB-SoniaNeural", 
+                                "en-AU-NatashaNeural",
+                                "en-US-JennyNeural"
+                            ]
+                            
+                            last_error = None
+                            for voice in voices:
+                                try:
+                                    communicate = edge_tts.Communicate(text, voice)
+                                    await communicate.save(audio_file[0])
+                                    print(f"✅ TTS generated with voice: {voice}")
+                                    return  # Success
+                                except Exception as e:
+                                    last_error = e
+                                    print(f"⚠️ Voice {voice} failed: {e}")
+                                    continue
+                            
+                            # If all voices failed, raise the last error
+                            if last_error:
+                                raise last_error
+                        
+                        loop = _asyncio.new_event_loop()
+                        _asyncio.set_event_loop(loop)
+                        loop.run_until_complete(generate_audio())
+                        loop.close()
+                        
+                        # Update to playing state
+                        def _set_playing():
+                            is_loading[0] = False
+                            is_playing[0] = True
+                            speaker_btn.text = "⏸️ Pause"
+                            speaker_btn.disabled = False
+                            speaker_btn.style.bgcolor = ft.colors.with_opacity(0.15, accent)
+                            page.update()
+                        _ui_call(_set_playing)
+                        
+                        # Play audio using pygame
+                        pygame.mixer.music.load(audio_file[0])
+                        pygame.mixer.music.play()
+                        
+                        # Wait for playback to finish
+                        while pygame.mixer.music.get_busy():
+                            pygame.time.Clock().tick(10)
+                            # Check if paused
+                            if is_paused[0]:
+                                while is_paused[0]:
+                                    pygame.time.Clock().tick(10)
+                        
+                        # Clean up audio file
+                        try:
+                            os.unlink(audio_file[0])
+                        except:
+                            pass
+                        
+                    except Exception as exc:
+                        print(f"TTS error: {exc}")
+                        import traceback
+                        traceback.print_exc()
+                    finally:
+                        # Reset button state
+                        def _reset():
+                            is_loading[0] = False
+                            is_playing[0] = False
+                            is_paused[0] = False
+                            speaker_btn.text = "🔊 Listen"
+                            speaker_btn.disabled = False
+                            speaker_btn.style.bgcolor = ft.colors.with_opacity(0.1, accent)
+                            page.update()
+                        _ui_call(_reset)
+                
+                _run_in_thread(_speak)
+            
+            speaker_btn = ft.TextButton(
+                text="🔊 Listen",
+                on_click=on_speaker_click,
+                disabled=False,
+                style=ft.ButtonStyle(
+                    color=accent,  # Purple accent color
+                    bgcolor=ft.colors.with_opacity(0.1, accent),  # Light purple background
+                    padding=ft.padding.symmetric(horizontal=12, vertical=6),
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                    overlay_color=ft.colors.with_opacity(0.2, accent),  # Darker purple on hover
+                ),
+            )
+            
+            # Build content with text, speaker button, and optional sources
+            bubble_content = [
+                ft.Text(text, color=BUBBLE_BOT_FG, size=state.font_sp(), selectable=True),
+                ft.Container(height=8),
+                speaker_btn,
+            ]
+            
+            # Add sources if provided
+            if sources and len(sources) > 0:
+                bubble_content.append(ft.Container(height=8))
+                bubble_content.append(
+                    ft.Text(
+                        "References:",
+                        color=BUBBLE_BOT_FG,
+                        size=state.font_sp() - 2,
+                        weight=ft.FontWeight.BOLD,
+                    )
+                )
+                for i, source in enumerate(sources, 1):
+                    bubble_content.append(
+                        ft.Text(
+                            f"{i}. {source}",
+                            color=accent,
+                            size=state.font_sp() - 2,
+                            selectable=True,
+                        )
+                    )
+            
             content = ft.Container(
-                content=ft.Text(text, color=BUBBLE_BOT_FG, size=state.font_sp(), selectable=True),
+                content=ft.Column(
+                    bubble_content,
+                    spacing=4,
+                    tight=True,
+                ),
                 bgcolor=BUBBLE_BOT_BG,
                 border_radius=16,
                 padding=ft.padding.symmetric(horizontal=14, vertical=10),
@@ -728,6 +1035,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             bubble = ft.Row([content], alignment=ft.MainAxisAlignment.START, expand=True)
 
         chat_list.controls.append(bubble)
+        return bubble
 
     # ------------------------------------------------------------------ #
     #  Chat Bar (Task 5.1)                                                #
@@ -753,10 +1061,103 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         msg = (chat_field.value or "").strip()
         if not msg:
             return
-        _add_bubble(msg, "user")
-        chat_field.value = ""
-        mic_icon.name = ft.icons.MIC_ROUNDED
-        page.update()
+        
+        # Check if we're in document or web mode
+        current_mode = active_mode[0]
+        
+        if current_mode == "document" and selected_file[0]:
+            # Document Q&A mode
+            on_doc_ask(None)
+        elif current_mode == "web" and url_valid[0]:
+            # Web Q&A mode
+            on_web_ask(None)
+        else:
+            # General chat mode - use voice processing pipeline
+            _add_bubble(msg, "user")
+            thinking_bubble = _add_bubble("Thinking…", "status")
+            chat_field.value = ""
+            mic_icon.name = ft.icons.MIC_ROUNDED
+            page.update()
+            
+            # Save user message to database
+            rag = get_rag_instance()
+            if RAG_AVAILABLE and rag and state.conversation_id:
+                try:
+                    rag.save_user_message(state.conversation_id, msg)
+                except Exception as e:
+                    print(f"⚠️ Failed to save user message: {e}")
+            
+            def _process_text_question():
+                try:
+                    # Use preloaded modules
+                    _, process_voice_result, _, _, _ = _get_preloaded_modules()
+                    
+                    # Process the question with user's country and language preferences
+                    print(f"Processing text question: {msg}")
+                    print(f"User country: {state.country}, User language: {state.language}")
+                    response = process_voice_result(
+                        dialect="en",  # Detected dialect (not used when language is specified)
+                        question=msg,
+                        query=msg,
+                        country=state.country,
+                        language=state.language
+                    )
+                    print(f"Got response: {response}")
+                    
+                    # Update UI with response
+                    def _show_response():
+                        # Remove thinking bubble
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                        
+                        if response:
+                            # response is now a dict with 'answer' and 'sources'
+                            if isinstance(response, dict):
+                                answer = response.get("answer", "")
+                                sources = response.get("sources", [])
+                                _add_bubble(answer, "bot", sources)
+                                
+                                # Save bot message to database
+                                rag = get_rag_instance()
+                                if RAG_AVAILABLE and rag and state.conversation_id:
+                                    try:
+                                        # Format response with sources for storage
+                                        full_response = answer
+                                        if sources:
+                                            full_response += "\n\nReferences:\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(sources))
+                                        rag.save_bot_message(state.conversation_id, full_response)
+                                    except Exception as e:
+                                        print(f"⚠️ Failed to save bot message: {e}")
+                            else:
+                                # Fallback for old format (string)
+                                _add_bubble(str(response), "bot")
+                                
+                                # Save bot message to database
+                                rag = get_rag_instance()
+                                if RAG_AVAILABLE and rag and state.conversation_id:
+                                    try:
+                                        rag.save_bot_message(state.conversation_id, str(response))
+                                    except Exception as e:
+                                        print(f"⚠️ Failed to save bot message: {e}")
+                        else:
+                            _add_bubble("⚠️ Could not process your question.", "status")
+                        
+                        page.update()
+                    
+                    _ui_call(_show_response)
+                    
+                except Exception as exc:
+                    def _show_error():
+                        if thinking_bubble in chat_list.controls:
+                            chat_list.controls.remove(thinking_bubble)
+                        _add_bubble(f"⚠️ Error: {exc}", "status")
+                        page.update()
+                    _ui_call(_show_error)
+                    print(f"Text question processing error: {exc}")
+                    import traceback
+                    traceback.print_exc()
+            
+            _run_in_thread(_process_text_question)
 
     chat_field.on_submit = on_chat_submit
 
@@ -883,7 +1284,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                             tmp_path = f.name
                         sf.write(tmp_path, audio_np, 16000)
-                        text = search_transcribe(tmp_path, normalize_to_question=False)
+                        # Use preloaded transcribe_audio function
+                        _, _, _, _, transcribe_audio = _get_preloaded_modules()
+                        text = transcribe_audio(tmp_path, normalize_to_question=False) if transcribe_audio else ""
                         os.remove(tmp_path)
                     else:
                         text = ""
@@ -923,12 +1326,21 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 question = results.get("question")
                 query = results.get("query")
 
+                # Add thinking indicator
+                thinking_bubble = [None]
+                
                 def set_processing():
                     is_processing[0] = True
                     chat_field.hint_text = "Processing..."
                     mic_icon.name = ft.icons.STOP_ROUNDED
                     mic_circle.gradient = None
                     mic_circle.bgcolor = ft.colors.GREY_400
+                    
+                    # Show transcript as user bubble
+                    if question:
+                        _add_bubble(question, "user")
+                    # Add thinking indicator
+                    thinking_bubble[0] = _add_bubble("Thinking…", "status")
                     page.update()
 
                 if hasattr(page, "call_from_thread"):
@@ -936,8 +1348,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 else:
                     set_processing()
 
-                # ✅ CALL YOUR MAIN LOGIC HERE
-                response = process_voice_result(dialect, question, query)
+                # ✅ CALL YOUR MAIN LOGIC HERE - Use preloaded modules
+                _, process_voice_result, speak_answer, _, _ = _get_preloaded_modules()
+                response = process_voice_result(
+                    dialect=dialect,
+                    question=question,
+                    query=query,
+                    country=state.country,
+                    language=state.language
+                )
 
                 # 👉 Update UI safely
                 def update_ui():
@@ -948,9 +1367,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     mic_circle.bgcolor = None
                     chat_field.value = ""
 
-                    # Show transcript as user bubble instead of putting it in the chatbox
-                    if question:
-                        _add_bubble(question, "user")
+                    # Remove thinking bubble
+                    if thinking_bubble[0] and thinking_bubble[0] in chat_list.controls:
+                        chat_list.controls.remove(thinking_bubble[0])
 
                     if response:
                         _show_result_card(response)
@@ -967,12 +1386,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 else:
                     update_ui()
 
-                # Run TTS after UI has been updated
+                # Run TTS after UI has been updated (only speak the answer, not sources)
                 if response:
                     import asyncio as _asyncio
                     loop = _asyncio.new_event_loop()
                     try:
-                        loop.run_until_complete(speak_answer(response))
+                        # Extract just the answer text for TTS
+                        answer_text = response.get("answer", "") if isinstance(response, dict) else str(response)
+                        if answer_text:
+                            loop.run_until_complete(speak_answer(answer_text, "MY"))
                     finally:
                         loop.close()
 
@@ -1055,9 +1477,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     )
 
     def _show_result_card(payload, title: str = "Response"):
-        """Voice response path — show as bot bubble."""
-        text = payload.get("summary", "") if isinstance(payload, dict) else str(payload)
-        _add_bubble(text, "bot")
+        """Voice response path — show as bot bubble with sources."""
+        if isinstance(payload, dict):
+            # New format with answer and sources
+            text = payload.get("answer", payload.get("summary", ""))
+            sources = payload.get("sources", [])
+            _add_bubble(text, "bot", sources)
+        else:
+            # Old format (string)
+            _add_bubble(str(payload), "bot")
         page.update()
 
     def _dismiss_result_card():
@@ -1071,9 +1499,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def _ui(fn):
         fn()  # Flet 0.19.0 — page.update() is thread-safe
 
-    def _add_bubble_safe(text: str, role: str = "bot"):
+    def _add_bubble_safe(text: str, role: str = "bot", sources: list = None):
         def _do():
-            _add_bubble(text, role)
+            _add_bubble(text, role, sources)
             page.update()
         _ui(_do)
 

@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\file_picker.py
-# hypothesis_version: 6.151.9
-
-['PUT', 'allowMultiple', 'allowedExtensions', 'any', 'audio', 'bool', 'custom', 'dialogTitle', 'fileName', 'fileType', 'filepicker', 'getDirectoryPath', 'image', 'initialDirectory', 'media', 'pickFiles', 'result', 'saveFile', 'state', 'upload', 'video']

@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\protocol.py
-# hypothesis_version: 6.151.9
-
-['a', 'addPageControls', 'c', 'cleanControl', 'i', 'invokeMethod', 'n', 'pageCommandFromHost', 'pageControlsBatch', 'pageEventFromWeb', 'pageEventToHost', 'registerHostClient', 'registerWebClient', 'removeControl', 'sessionCrashed', 'sessionCreated', 'updateControlProps', 'v']

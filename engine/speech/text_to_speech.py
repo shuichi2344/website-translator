@@ -113,59 +113,61 @@ async def speak_answer(text: str, country_code: str = "DEFAULT"):
         print(f"TTS Error: {e}")
 
 if __name__ == "__main__":
-#     # --- MALAYSIA (MY) CONTEXT ---
+    # Test examples (uncomment to test)
+    pass
+    # # --- MALAYSIA (MY) CONTEXT ---
 
-#     # 1. Local English (Should use en-SG-Luna per your preference)
-#     t1 = "Don't forget to renew your road tax before the end of the month, okay?"
-#     asyncio.run(speak_answer(t1, "MY"))
+    # # 1. Local English (Should use en-SG-Luna per your preference)
+    # t1 = "Don't forget to renew your road tax before the end of the month, okay?"
+    # asyncio.run(speak_answer(t1, "MY"))
 
-#     # 2. Formal Malay (Should use ms-MY-Yasmin)
-#     t2 = "Sila pastikan semua dokumen asal dibawa bersama semasa temu janji di pejabat imigresen."
-#     asyncio.run(speak_answer(t2, "MY"))
+    # # 2. Formal Malay (Should use ms-MY-Yasmin)
+    # t2 = "Sila pastikan semua dokumen asal dibawa bersama semasa temu janji di pejabat imigresen."
+    # asyncio.run(speak_answer(t2, "MY"))
 
-#     # 3. Local Mandarin (Should use zh-SG-Xiaoxiao)
-#     t3 = "请记得携带您的身份证，并前往最近的柜台进行登记。"
-#     asyncio.run(speak_answer(t3, "MY"))
+    # # 3. Local Mandarin (Should use zh-SG-Xiaoxiao)
+    # t3 = "请记得携带您的身份证，并前往最近的柜台进行登记。"
+    # asyncio.run(speak_answer(t3, "MY"))
 
-#     # --- REGIONAL ASEAN CONTEXT ---
+    # # --- REGIONAL ASEAN CONTEXT ---
 
-#     # 4. Indonesian (Should use id-ID-Gadis)
-#     # Scenario: Helping a migrant worker with safety instructions
-#     t4 = "Gunakan peralatan keselamatan kerja anda dengan benar untuk menghindari kecelakaan."
-#     asyncio.run(speak_answer(t4, "ID"))
+    # # 4. Indonesian (Should use id-ID-Gadis)
+    # # Scenario: Helping a migrant worker with safety instructions
+    # t4 = "Gunakan peralatan keselamatan kerja anda dengan benar untuk menghindari kecelakaan."
+    # asyncio.run(speak_answer(t4, "ID"))
 
-#     # 5. Thai (Should use th-TH-Premwadee)
-#     # Scenario: Public transport/kiosk greeting
-#     t5 = "กรุณารอที่จุดนี้เพื่อรับความช่วยเหลือจากเจ้าหน้าที่ของเรา"
-#     asyncio.run(speak_answer(t5, "TH"))
+    # # 5. Thai (Should use th-TH-Premwadee)
+    # # Scenario: Public transport/kiosk greeting
+    # t5 = "กรุณารอที่จุดนี้เพื่อรับความช่วยเหลือจากเจ้าหน้าที่ของเรา"
+    # asyncio.run(speak_answer(t5, "TH"))
 
-#     # 6. Filipino/Tagalog (Should use fil-PH-Blessica)
-#     # Scenario: Healthcare assistance
-#     t6 = "Maaari po kayong pumunta sa pinakamalapit na health center para sa inyong libreng check-up."
-#     asyncio.run(speak_answer(t6, "PH"))
+    # # 6. Filipino/Tagalog (Should use fil-PH-Blessica)
+    # # Scenario: Healthcare assistance
+    # t6 = "Maaari po kayong pumunta sa pinakamalapit na health center para sa inyong libreng check-up."
+    # asyncio.run(speak_answer(t6, "PH"))
 
-#     # 7. Vietnamese (Should use vi-VN-HoaiMy)
-#     # Scenario: Information for residents
-#     t7 = "Vui lòng xuất trình giấy tờ tùy thân của bạn tại quầy tiếp tân để được hỗ trợ."
-#     asyncio.run(speak_answer(t7, "VN"))
+    # # 7. Vietnamese (Should use vi-VN-HoaiMy)
+    # # Scenario: Information for residents
+    # t7 = "Vui lòng xuất trình giấy tờ tùy thân của bạn tại quầy tiếp tân để được hỗ trợ."
+    # asyncio.run(speak_answer(t7, "VN"))
 
-#     # --- FALLBACK TEST ---
+    # # --- FALLBACK TEST ---
 
-#     # 8. Unrecognized Language / Default (Should fallback to en-US or en-SG)
-#     t8 = "Welcome to the digital citizen portal. How can we help you today?"
-#     asyncio.run(speak_answer(t8, "XYZ")) # Testing the "DEFAULT" logic
+    # # 8. Unrecognized Language / Default (Should fallback to en-US or en-SG)
+    # t8 = "Welcome to the digital citizen portal. How can we help you today?"
+    # asyncio.run(speak_answer(t8, "XYZ")) # Testing the "DEFAULT" logic
 
-#    # Test 9: Brunei Malay (Using MY voice as local equivalent)
-#    # Scenario: Financial assistance instruction
-#    t10 = "Sila pastikan borang bantuan kewangan anda lengkap sebelum dihantar."
-#    asyncio.run(speak_answer(t10, "BN"))
+    # # Test 9: Brunei Malay (Using MY voice as local equivalent)
+    # # Scenario: Financial assistance instruction
+    # t10 = "Sila pastikan borang bantuan kewangan anda lengkap sebelum dihantar."
+    # asyncio.run(speak_answer(t10, "BN"))
 
-#    # Test 10: Timor-Leste Portuguese
-#    # Scenario: Public health announcement
-#    t11 = "Por favor, lave as mãos regularmente para manter a saúde de todos."
-#    asyncio.run(speak_answer(t11, "TL"))
+    # # Test 10: Timor-Leste Portuguese
+    # # Scenario: Public health announcement
+    # t11 = "Por favor, lave as mãos regularmente para manter a saúde de todos."
+    # asyncio.run(speak_answer(t11, "TL"))
 
-#    # Test 11: Malaysian Tamil (Verify ta mapping again)
-#    t12 = "உங்கள் வருகைக்கு நன்றி, மீண்டும் வருக."
-#    # (Translation: Thank you for your visit, come again.)
-#    asyncio.run(speak_answer(t12, "MY"))
+    # # Test 11: Malaysian Tamil (Verify ta mapping again)
+    # t12 = "உங்கள் வருகைக்கு நன்றி, மீண்டும் வருக."
+    # # (Translation: Thank you for your visit, come again.)
+    # asyncio.run(speak_answer(t12, "MY"))

@@ -45,11 +45,14 @@ class PreferencesSaveError(Exception):
 @dataclass
 class AppState:
     username: str = ""
+    user_id: str = ""  # MySQL user ID
+    email: str = ""  # User email
     language: str = "English"
     country: str = "Malaysia"
     font_size: str = "Medium"
     theme_mode: str = "Light"
     onboarding_complete: bool = False
+    conversation_id: str = ""  # Current conversation ID
     # Runtime-only (not persisted)
     session: Any | None = None
     stream: Any | None = None
@@ -105,6 +108,8 @@ def load_state(username: str) -> AppState:
 
     return AppState(
         username=username,
+        user_id=data.get("user_id", ""),
+        email=data.get("email", ""),
         language=language,
         country=country,
         font_size=font_size,
@@ -127,6 +132,8 @@ def save_state(state: AppState) -> None:
         # are not JSON-serializable and should not be written to disk.
         data = {
             "username": state.username,
+            "user_id": state.user_id,
+            "email": state.email,
             "language": state.language,
             "country": state.country,
             "font_size": state.font_size,

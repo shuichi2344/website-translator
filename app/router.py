@@ -10,9 +10,36 @@ def make_route_handler(state: AppState):
 
     def route_change(e: ft.RouteChangeEvent) -> None:
         page: ft.Page = e.page
-        page.views.clear()
-
         route = page.route
+
+        # Show loading indicator for heavy routes
+        if route == "/home":
+            # Clear views and show loading screen
+            page.views.clear()
+            loading_view = ft.View(
+                route="/loading",
+                controls=[
+                    ft.Container(
+                        content=ft.Column(
+                            controls=[
+                                ft.ProgressRing(color=ft.colors.PURPLE),
+                                ft.Container(height=20),
+                                ft.Text("Loading...", size=16, color=ft.colors.PURPLE),
+                            ],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                        ),
+                        alignment=ft.alignment.center,
+                        expand=True,
+                    )
+                ],
+                bgcolor=state.bg_color(),
+            )
+            page.views.append(loading_view)
+            page.update()
+
+        # Clear views for actual route
+        page.views.clear()
 
         if route == "/login":
             from app.views.login import build_login_view

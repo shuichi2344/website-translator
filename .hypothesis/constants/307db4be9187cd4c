@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\chip.py
-# hypothesis_version: 6.151.9
-
-['autofocus', 'bgcolor', 'blur', 'bool', 'checkColor', 'chip', 'click', 'delete', 'deleteIcon', 'deleteIconColor', 'disabledColor', 'elevation', 'focus', 'label', 'labelPadding', 'labelStyle', 'leading', 'n', 'onDelete', 'onSelect', 'onclick', 'padding', 'select', 'selected', 'selectedColor', 'selectedShadowColor', 'shadowColor', 'shape', 'showCheckmark']

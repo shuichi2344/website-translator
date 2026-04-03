@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\websocket\_handshake.py
-# hypothesis_version: 6.151.9
-
-[443, ',', ':', ': ', '; ', 'Connection: Upgrade', 'Sec-WebSocket-Key', 'Upgrade: websocket', 'connection', 'content-length', 'cookie', 'handshake', 'handshake_response', 'header', 'host', 'origin', 'request header', 'sec-websocket-accept', 'set-cookie', 'subprotocols', 'suppress_origin', 'upgrade', 'utf-8', 'websocket', 'wss']

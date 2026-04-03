@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc8628\endpoints\device_authorization.py
-# hypothesis_version: 6.151.9
-
-[200, 1800, 'Content-Type', 'POST', 'client_id', 'device_code', 'expires_in', 'interval', 'scope', 'user_code', 'verification_uri']

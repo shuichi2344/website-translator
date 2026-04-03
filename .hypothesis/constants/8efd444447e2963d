@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\repath.py
-# hypothesis_version: 6.151.9
-
-['$', '(?:%s)', '(?:/(?=$))?', '(?=/|$)', '([=!:$()])', '*', '+', "-_.!~*'()", '.*', '/', '?', '?P<%s>', 'OPTIONAL', 'REPEAT', 'REQUIRED', '[^%s]+?', '[a-zA-Z]', '\\\\\\1', '^%s', '^%s$', 'asterisk', 'capture', 'delimiter', 'escaped', 'group', 'name', 'optional', 'pattern', 'prefix', 'repeat', 'suffix', 'utf8', '|']

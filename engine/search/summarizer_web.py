@@ -1,17 +1,35 @@
 """
-Document & Website Summarizer - Web Interface
+Document & Website Summarizer - API Backend
+Integrated with MySQL + ChromaDB for user management and RAG
+API-only backend for browser extension and Flet desktop app
 """
 
 import sys
-from flask import Flask, render_template_string, request, jsonify, send_file, Response
+import os
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-import os
 from dotenv import load_dotenv
-from document_summariser_v6_gemini import DocumentSummarizer
 from pathlib import Path
-from speech_to_text import transcribe_audio
 import io
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+# Import from engine.search
+from engine.search.document_summariser_v6_gemini import DocumentSummarizer
+from engine.search.speech_to_text import transcribe_audio
+
+# Database imports
+try:
+    from engine.database.auth_handler import AuthHandler
+    from engine.database.rag_integration import RAGIntegration
+    DB_IMPORTS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Database imports not available: {e}")
+    DB_IMPORTS_AVAILABLE = False
+    AuthHandler = None
+    RAGIntegration = None
 
 # TTS imports
 try:
@@ -40,6 +58,22 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Initialize database handlers
+if DB_IMPORTS_AVAILABLE:
+    try:
+        auth_handler = AuthHandler()
+        rag_integration = RAGIntegration()
+        print("✅ Database handlers initialized")
+    except Exception as e:
+        print(f"⚠️  Database initialization failed: {e}")
+        print("   App will run without database features")
+        auth_handler = None
+        rag_integration = None
+else:
+    print("⚠️  Database modules not imported - running without database features")
+    auth_handler = None
+    rag_integration = None
 
 # ── ffmpeg PATH fix ───────────────────────────────────────────────────────────
 # winget installs ffmpeg but the new PATH entry only takes effect after a shell
@@ -71,874 +105,198 @@ def _ensure_ffmpeg_on_path():
 
 _ensure_ffmpeg_on_path()
 
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bridge - Document Summarizer</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            padding: 40px;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-        }
-        
-        .icon {
-            font-size: 60px;
-            margin-bottom: 20px;
-        }
-        
-        h1 {
-            color: #333;
-            font-size: 32px;
-            margin-bottom: 10px;
-        }
-        
-        .subtitle {
-            color: #666;
-            font-size: 16px;
-        }
-        
-        .tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #e0e0e0;
-        }
-        
-        .tab {
-            padding: 15px 30px;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 16px;
-            color: #666;
-            border-bottom: 3px solid transparent;
-            transition: all 0.3s;
-        }
-        
-        .tab.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
-            font-weight: 600;
-        }
-        
-        .tab-content {
-            display: none;
-        }
-        
-        .tab-content.active {
-            display: block;
-        }
-        
-        .form-group {
-            margin-bottom: 25px;
-        }
-        
-        label {
-            display: block;
-            color: #333;
-            font-weight: 600;
-            margin-bottom: 8px;
-            font-size: 14px;
-        }
-        
-        input[type="text"], input[type="url"], select {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-        
-        input:focus, select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .file-input-wrapper {
-            position: relative;
-            overflow: hidden;
-            display: inline-block;
-            width: 100%;
-        }
-        
-        .file-input-wrapper input[type=file] {
-            position: absolute;
-            left: -9999px;
-        }
-        
-        .file-input-label {
-            display: block;
-            padding: 15px;
-            background: #f8f9fa;
-            border: 2px dashed #ddd;
-            border-radius: 10px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .file-input-label:hover {
-            background: #e9ecef;
-            border-color: #667eea;
-        }
-        
-        .btn {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-size: 18px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        
-        .btn:hover {
-            transform: translateY(-2px);
-        }
-        
-        .btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .result {
-            display: none;
-            margin-top: 30px;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-        
-        .result.show {
-            display: block;
-        }
-        
-        .stats {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        
-        .stat {
-            flex: 1;
-            padding: 15px;
-            background: white;
-            border-radius: 10px;
-            text-align: center;
-        }
-        
-        .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #667eea;
-        }
-        
-        .stat-label {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
-        }
-        
-        .summary-box {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            line-height: 1.8;
-            color: #333;
-        }
-        
-        .loading {
-            display: none;
-            text-align: center;
-            margin-top: 20px;
-        }
-        
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .note {
-            background: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 10px;
-            padding: 15px;
-            margin-top: 20px;
-            font-size: 13px;
-            color: #856404;
-        }
-        .mic-btn {
-            padding: 0 15px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px; /* Matches the icon sizing of your other buttons */
-        }
+# ═══════════════════════════════════════════════════════════════════════════
+# API-ONLY BACKEND - No Web Interface
+# All endpoints are for browser extension and Flet desktop app
+# ═══════════════════════════════════════════════════════════════════════════
 
-        .mic-btn:hover {
-            box-shadow: 0 5px 15px rgba(118, 75, 162, 0.3);
-        }
+# ═══════════════════════════════════════════════════════════════════════════
+# AUTHENTICATION ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
 
-        .mic-btn:active {
-            transform: translateY(0);
-        }
-
-        /* Optional: Red Pulse when active */
-        .mic-btn.recording {
-            background: linear-gradient(135deg, #ff4b2b 0%, #ff416c 100%);
-            animation: mic-pulse 1.5s infinite;
-        }
-
-        @keyframes mic-pulse {
-            0% { box-shadow: 0 0 0 0 rgba(255, 75, 43, 0.4); }
-            70% { box-shadow: 0 0 0 10px rgba(255, 75, 43, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(255, 75, 43, 0); }
-        }
-    </style>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="icon">📄</div>
-            <h1>Bridge Document Summarizer</h1>
-            <p class="subtitle">ASEAN Multilingual Document & Website Summarizer with Docling + Google Gemini (Advanced AI Processing)</p>
-        </div>
-        
-        <div class="tabs">
-            <button class="tab active" onclick="switchTab('document')">📄 Document</button>
-            <button class="tab" onclick="switchTab('website')">🌐 Website</button>
-        </div>
-        
-        <!-- Document Tab -->
-        <div id="document-tab" class="tab-content active">
-            <form id="documentForm" onsubmit="summarizeDocument(event)">
-                <div class="form-group">
-                    <label>Upload Document</label>
-                    <div class="file-input-wrapper">
-                        <input type="file" name="file" id="file" accept=".pdf,.png,.jpg,.jpeg,.bmp,.tiff" required>
-                        <label for="file" class="file-input-label">
-                            <span id="file-label-text">📎 Click to select file (PDF or Images)</span>
-                        </label>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="doc_lang">Target Language (ASEAN)</label>
-                    <select name="target_lang" id="doc_lang">
-                        <option value="en">English</option>
-                        <option value="ms">Malay</option>
-                        <option value="id">Indonesian</option>
-                        <option value="vi">Vietnamese</option>
-                        <option value="th">Thai</option>
-                        <option value="zh-cn">Chinese Simplified</option>
-                        <option value="zh-tw">Chinese Traditional</option>
-                        <option value="ta">Tamil</option>
-                        <option value="tl">Tagalog/Filipino</option>
-                        <option value="my">Burmese/Myanmar</option>
-                        <option value="km">Khmer</option>
-                        <option value="lo">Lao</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="doc_question" style="display: block; margin-bottom: 8px;">Ask a question about this document (RAG)</label>
-                    <div style="display: flex; gap: 10px; align-items: stretch;">
-                        <input type="text" name="question" id="doc_question"
-                            placeholder="e.g. What are the main findings?"
-                            style="flex-grow: 1; padding: 12px; border: 2px solid #e0e0e0; border-radius: 10px;">
-                        
-                        <button type="button" class="mic-btn" id="doc_mic_btn"
-                                style="padding: 0 40px; cursor: pointer; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; transition: transform 0.2s;">
-                            <i class="fas fa-microphone"></i>
-                        </button>
-                    </div>
-                </div>
-                
-                <button type="submit" class="btn" id="docBtn">
-                    📝 Summarize Document
-                </button>
-                <button type="button" class="btn" style="margin-top: 10px;" id="docQaBtn" onclick="askDocumentQuestion()">
-                    ❓ Ask Question about Document
-                </button>
-            </form>
-        </div>
-        
-        <!-- Website Tab -->
-        <div id="website-tab" class="tab-content">
-            <form id="websiteForm" onsubmit="summarizeWebsite(event)">
-                <div class="form-group">
-                    <label for="url">Website URL</label>
-                    <input type="url" name="url" id="url" placeholder="https://example.gov.my" required>
-                    <small style="color: #666; display: block; margin-top: 5px;">
-                        ℹ️ Will automatically crawl and summarize 3 additional sublinks
-                    </small>
-                </div>
-                
-                <div class="form-group">
-                    <label for="web_lang">Target Language (ASEAN)</label>
-                    <select name="target_lang" id="web_lang">
-                        <option value="en">English</option>
-                        <option value="ms">Malay</option>
-                        <option value="id">Indonesian</option>
-                        <option value="vi">Vietnamese</option>
-                        <option value="th">Thai</option>
-                        <option value="zh-cn">Chinese Simplified</option>
-                        <option value="zh-tw">Chinese Traditional</option>
-                        <option value="ta">Tamil</option>
-                        <option value="tl">Tagalog/Filipino</option>
-                        <option value="my">Burmese/Myanmar</option>
-                        <option value="km">Khmer</option>
-                        <option value="lo">Lao</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="question" style="display: block; margin-bottom: 8px;">Ask a question about this website (RAG)</label>
-                    <div style="display: flex; gap: 10px; align-items: stretch;">
-                        <input type="text" name="question" id="question"
-                            placeholder="e.g. What are the main findings?"
-                            style="flex-grow: 1; padding: 12px; border: 2px solid #e0e0e0; border-radius: 10px;">
-                        
-                        <button type="button" class="mic-btn" id="web_mic_btn"
-                                style="padding: 0 40px; cursor: pointer; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; transition: transform 0.2s;">
-                            <i class="fas fa-microphone"></i>
-                        </button>
-                    </div>
-                </div>
-                
-                <button type="submit" class="btn" id="webBtn">
-                    📝 Summarize Website
-                </button>
-                <button type="button" class="btn" style="margin-top: 10px;" id="qaBtn" onclick="askWebsiteQuestion()">
-                    ❓ Ask Question about Website
-                </button>
-            </form>
-        </div>
-        
-        <div class="loading" id="loading">
-            <div class="spinner"></div>
-            <p style="margin-top: 10px; color: #666;">Processing... This may take a minute.</p>
-        </div>
-        
-        <div class="result" id="result">
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-value" id="originalWords">0</div>
-                    <div class="stat-label">Original Words</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="summaryWords">0</div>
-                    <div class="stat-label">Summary Words</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="reduction">0%</div>
-                    <div class="stat-label">Reduction</div>
-                </div>
-            </div>
-            
-            <h3 style="margin-bottom: 15px;">Summary:</h3>
-            <div class="summary-box" id="summaryText"></div>
-        </div>
-        
-        <div class="note">
-            <strong>📝 Note:</strong><br>
-            • Maximum file size: 50MB<br>
-            • Docling + Google Gemini 2.0 Flash - Advanced AI summarization<br>
-            • RAG Q&A: Ask specific questions about documents or websites<br>
-            • Automatic language detection and complex table recognition<br>
-            • Supports PDF and images (PNG, JPG, JPEG, BMP, TIFF)<br>
-            • Website summarization extracts main content and crawls 3 sublinks<br>
-            • Embeddings cached in ChromaDB for fast repeated queries
-        </div>
-    </div>
+@app.route('/api/register', methods=['POST'])
+def register():
+    """Register new user"""
+    if not auth_handler:
+        return jsonify({'success': False, 'error': 'Database not available'}), 500
     
-    <script>
-        function switchTab(tab) {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
-            event.target.classList.add('active');
-            document.getElementById(tab + '-tab').classList.add('active');
-            document.getElementById('result').classList.remove('show');
-        }
+    try:
+        data = request.get_json()
+        result = auth_handler.register_user(
+            name=data.get('name'),
+            email=data.get('email'),
+            password=data.get('password'),
+            country=data.get('country'),
+            language=data.get('language', 'en')
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    """Login user"""
+    if not auth_handler:
+        return jsonify({'success': False, 'error': 'Database not available'}), 500
+    
+    try:
+        data = request.get_json()
+        result = auth_handler.login_user(
+            email=data.get('email'),
+            password=data.get('password')
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/profile/<user_id>', methods=['GET'])
+def get_profile(user_id):
+    """Get user profile"""
+    if not auth_handler:
+        return jsonify({'success': False, 'error': 'Database not available'}), 500
+    
+    try:
+        profile = auth_handler.get_user_profile(user_id)
+        if profile:
+            return jsonify({'success': True, 'profile': profile})
+        return jsonify({'success': False, 'error': 'User not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/profile/<user_id>', methods=['PUT'])
+def update_profile(user_id):
+    """Update user profile"""
+    if not auth_handler:
+        return jsonify({'success': False, 'error': 'Database not available'}), 500
+    
+    try:
+        data = request.get_json()
+        result = auth_handler.update_user_profile(
+            user_id=user_id,
+            name=data.get('name'),
+            country=data.get('country'),
+            language=data.get('language')
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CHAT & RAG ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.route('/api/conversations', methods=['POST'])
+def create_conversation():
+    """Create new conversation"""
+    if not rag_integration:
+        return jsonify({'success': False, 'error': 'Database not available'}), 500
+    
+    try:
+        data = request.get_json()
+        conversation_id = rag_integration.create_conversation(
+            user_id=data.get('user_id'),
+            title=data.get('title', 'New Conversation')
+        )
+        if conversation_id:
+            return jsonify({'success': True, 'conversation_id': conversation_id})
+        return jsonify({'success': False, 'error': 'Failed to create conversation'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/conversations/<user_id>', methods=['GET'])
+def get_conversations(user_id):
+    """Get all user conversations"""
+    if not rag_integration:
+        return jsonify({'success': False, 'error': 'Database not available'}), 500
+    
+    try:
+        conversations = rag_integration.mysql.get_user_conversations(user_id)
+        return jsonify({'success': True, 'conversations': conversations})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/messages/<conversation_id>', methods=['GET'])
+def get_messages(conversation_id):
+    """Get conversation messages"""
+    if not rag_integration:
+        return jsonify({'success': False, 'error': 'Database not available'}), 500
+    
+    try:
+        messages = rag_integration.get_conversation_history(conversation_id)
+        return jsonify({'success': True, 'messages': messages})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """
+    Main chat endpoint with RAG integration
+    Handles both website Q&A and general chat
+    """
+    if not rag_integration:
+        # Fallback to old behavior if database not available
+        return qa_website()
+    
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        conversation_id = data.get('conversation_id')
+        message = data.get('message') or data.get('question')
+        url = data.get('url')
+        target_lang = data.get('targetLang', 'en')
         
-        function toggleCrawlOptions() {
-            // No longer needed - crawling is always enabled
-        }
+        if not message:
+            return jsonify({'success': False, 'error': 'No message provided'}), 400
         
-        document.getElementById('file').addEventListener('change', function() {
-            const fileName = this.files[0]?.name;
-            if (fileName) {
-                document.getElementById('file-label-text').textContent = '📎 ' + fileName;
-            }
-        });
+        # Create conversation if new
+        if not conversation_id and user_id:
+            title = message[:50] + "..." if len(message) > 50 else message
+            conversation_id = rag_integration.create_conversation(user_id, title)
         
-        async function summarizeDocument(event) {
-            event.preventDefault();
-            
-            const formData = new FormData(event.target);
-            const btn = document.getElementById('docBtn');
-            const loading = document.getElementById('loading');
-            const result = document.getElementById('result');
-            
-            btn.disabled = true;
-            loading.style.display = 'block';
-            result.classList.remove('show');
-            
-            try {
-                const response = await fetch('/summarize/document', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showResult(data);
-                } else {
-                    alert('Error: ' + data.error);
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            } finally {
-                btn.disabled = false;
-                loading.style.display = 'none';
-            }
-        }
+        # Save user message with embedding
+        if conversation_id:
+            rag_integration.save_user_message(conversation_id, message)
         
-        async function summarizeWebsite(event) {
-            event.preventDefault();
-            
-            const formData = new FormData(event.target);
-            
-            // Automatically enable crawling with 3 sublinks
-            formData.append('crawl_depth', '1');
-            formData.append('max_sublinks', '3');
-            
-            const btn = document.getElementById('webBtn');
-            const loading = document.getElementById('loading');
-            const result = document.getElementById('result');
-            
-            btn.disabled = true;
-            loading.style.display = 'block';
-            result.classList.remove('show');
-            
-            try {
-                const response = await fetch('/summarize/website', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showResult(data);
-                } else {
-                    alert('Error: ' + data.error);
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            } finally {
-                btn.disabled = false;
-                loading.style.display = 'none';
-            }
-        }
+        # Get context using RAG
+        context = None
+        if conversation_id:
+            context = rag_integration.get_context_for_response(
+                query=message,
+                conversation_id=conversation_id,
+                include_history=True
+            )
         
-        async function askWebsiteQuestion() {
-            const urlInput = document.getElementById('url');
-            const questionInput = document.getElementById('question');
-            const langSelect = document.getElementById('web_lang');
-            const btn = document.getElementById('qaBtn');
-            const loading = document.getElementById('loading');
-            const result = document.getElementById('result');
-
-            const url = urlInput.value.trim();
-            const question = questionInput.value.trim();
-            const targetLang = langSelect.value || 'en';
-
-            if (!url) {
-                alert('Please enter a website URL.');
-                return;
-            }
-            if (!question) {
-                alert('Please enter a question about the website.');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('url', url);
-            formData.append('question', question);
-            formData.append('target_lang', targetLang);
-
-            btn.disabled = true;
-            loading.style.display = 'block';
-            result.classList.remove('show');
-
-            try {
-                const response = await fetch('/qa/website', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    showResult(data);
-                } else {
-                    alert('Error: ' + data.error);
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            } finally {
-                btn.disabled = false;
-                loading.style.display = 'none';
-            }
-        }
-
-        async function askDocumentQuestion() {
-            const fileInput = document.getElementById('file');
-            const questionInput = document.getElementById('doc_question');
-            const langSelect = document.getElementById('doc_lang');
-            const btn = document.getElementById('docQaBtn');
-            const loading = document.getElementById('loading');
-            const result = document.getElementById('result');
-
-            const file = fileInput.files[0];
-            const question = questionInput.value.trim();
-            const targetLang = langSelect.value || 'en';
-
-            if (!file) {
-                alert('Please select a document file.');
-                return;
-            }
-            if (!question) {
-                alert('Please enter a question about the document.');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('question', question);
-            formData.append('target_lang', targetLang);
-
-            btn.disabled = true;
-            loading.style.display = 'block';
-            result.classList.remove('show');
-
-            try {
-                const response = await fetch('/qa/document', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    showResult(data);
-                } else {
-                    alert('Error: ' + data.error);
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            } finally {
-                btn.disabled = false;
-                loading.style.display = 'none';
-            }
-        }
+        # Generate response using existing summarizer
+        summarizer = DocumentSummarizer(target_lang=target_lang)
         
-        function showResult(data) {
-            document.getElementById('originalWords').textContent = data.word_count;
-            document.getElementById('summaryWords').textContent = data.summary_word_count;
-            
-            const reduction = 100 - (data.summary_word_count / data.word_count * 100);
-            document.getElementById('reduction').textContent = reduction.toFixed(1) + '%';
-            
-            document.getElementById('summaryText').textContent = data.summary;
-            document.getElementById('result').classList.add('show');
-        }
+        if url:
+            # Website Q&A with RAG context
+            result = summarizer.rag_qa_website(url, message)
+        else:
+            # General Q&A (could integrate with other sources)
+            result = {'summary': 'Response generation not yet implemented for general chat'}
+        
+        # Save bot response
+        if conversation_id and result:
+            bot_message = result.get('summary', result.get('answer', ''))
+            rag_integration.save_bot_message(conversation_id, bot_message)
+        
+        # Add context info to response
+        if result and context:
+            result['context_used'] = len(context.get('relevant_messages', []))
+            result['conversation_id'] = conversation_id
+        
+        return jsonify({'success': True, 'data': result})
+        
+    except Exception as e:
+        print(f"❌ Chat error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
-        let mediaRecorder;
-        let audioChunks = [];
-
-        let activeMicBtn = null;
-        let activeQuestionInput = null;
-        let audioContext;
-        let mediaStream;
-        let sourceNode;
-        let processorNode;
-        let recordedBuffers = [];
-        let recordingSampleRate = 48000;
-
-        async function startRecording(targetBtn, targetInput) {
-            try {
-                activeMicBtn = targetBtn || null;
-                activeQuestionInput = targetInput || null;
-
-                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                recordingSampleRate = audioContext.sampleRate;
-                recordedBuffers = [];
-
-                sourceNode = audioContext.createMediaStreamSource(mediaStream);
-                // ScriptProcessor is deprecated but widely supported and simplest here
-                processorNode = audioContext.createScriptProcessor(4096, 1, 1);
-
-                processorNode.onaudioprocess = (e) => {
-                    const input = e.inputBuffer.getChannelData(0);
-                    recordedBuffers.push(new Float32Array(input));
-                };
-
-                sourceNode.connect(processorNode);
-                processorNode.connect(audioContext.destination);
-
-                if (activeMicBtn) activeMicBtn.classList.add('recording');
-                console.log("Recording started...");
-            } catch (err) {
-                console.error("Mic access denied:", err);
-                alert("Mic access denied: " + (err?.message || err));
-            }
-        }
-
-        function _flattenFloat32(buffers) {
-            let total = 0;
-            for (const b of buffers) total += b.length;
-            const out = new Float32Array(total);
-            let offset = 0;
-            for (const b of buffers) {
-                out.set(b, offset);
-                offset += b.length;
-            }
-            return out;
-        }
-
-        function _resampleLinearFloat32(input, srcRate, dstRate) {
-            if (srcRate === dstRate) return input;
-            const ratio = dstRate / srcRate;
-            const newLength = Math.max(1, Math.round(input.length * ratio));
-            const output = new Float32Array(newLength);
-            const scale = (input.length - 1) / (newLength - 1);
-            for (let i = 0; i < newLength; i++) {
-                const idx = i * scale;
-                const idx0 = Math.floor(idx);
-                const idx1 = Math.min(idx0 + 1, input.length - 1);
-                const frac = idx - idx0;
-                output[i] = input[idx0] * (1 - frac) + input[idx1] * frac;
-            }
-            return output;
-        }
-
-        function _encodeWavMono16(samplesFloat32, sampleRate) {
-            const buffer = new ArrayBuffer(44 + samplesFloat32.length * 2);
-            const view = new DataView(buffer);
-
-            function writeString(offset, str) {
-                for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-            }
-
-            // RIFF header
-            writeString(0, "RIFF");
-            view.setUint32(4, 36 + samplesFloat32.length * 2, true);
-            writeString(8, "WAVE");
-
-            // fmt chunk
-            writeString(12, "fmt ");
-            view.setUint32(16, 16, true); // PCM
-            view.setUint16(20, 1, true); // format = PCM
-            view.setUint16(22, 1, true); // channels = 1
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, sampleRate * 2, true); // byte rate
-            view.setUint16(32, 2, true); // block align
-            view.setUint16(34, 16, true); // bits per sample
-
-            // data chunk
-            writeString(36, "data");
-            view.setUint32(40, samplesFloat32.length * 2, true);
-
-            let offset = 44;
-            for (let i = 0; i < samplesFloat32.length; i++, offset += 2) {
-                let s = Math.max(-1, Math.min(1, samplesFloat32[i]));
-                view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-            }
-            return new Blob([view], { type: "audio/wav" });
-        }
-
-        async function _stopAndUpload() {
-            try {
-                const flat = _flattenFloat32(recordedBuffers);
-                const resampled = _resampleLinearFloat32(flat, recordingSampleRate, 16000);
-                const audioBlob = _encodeWavMono16(resampled, 16000);
-                const formData = new FormData();
-                formData.append('audio', audioBlob, 'temp_audio.wav');
-
-                // Show processing state
-                if (activeMicBtn) {
-                    activeMicBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-                    activeMicBtn.disabled = true;
-                }
-
-                const response = await fetch('/speech-to-text', { method: 'POST', body: formData });
-                const data = await response.json();
-
-                if (!data?.success) {
-                    alert('Speech-to-text failed: ' + (data?.error || 'Unknown error'));
-                    return;
-                }
-
-                function _extractTranscript(payload) {
-                    if (payload == null) return '';
-                    // Common shapes:
-                    // { success: true, text: "..." }
-                    // { success: true, text: { text: "..."} }
-                    // { success: true, question: "..." } etc.
-                    let candidate =
-                        payload.text ??
-                        payload.question ??
-                        payload.transcript ??
-                        payload.transcription ??
-                        '';
-
-                    if (candidate == null) return '';
-                    if (typeof candidate === 'string') return candidate;
-                    if (typeof candidate === 'number' || typeof candidate === 'boolean') return String(candidate);
-
-                    if (typeof candidate === 'object') {
-                        const nested =
-                            candidate.text ??
-                            candidate.question ??
-                            candidate.transcript ??
-                            candidate.transcription ??
-                            '';
-                        if (typeof nested === 'string') return nested;
-                        // Only write actual transcript strings into the input box.
-                        return '';
-                    }
-
-                    return String(candidate);
-                }
-
-                const text = _extractTranscript(data).trim();
-                if (text.length > 0) {
-                    if (activeQuestionInput) {
-                        activeQuestionInput.value = text;
-                    }
-                    // Some browsers/UI setups only refresh on input events
-                    if (activeQuestionInput) {
-                        activeQuestionInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        activeQuestionInput.focus();
-                    }
-                } else {
-                    alert('No speech detected. Please try again and speak closer to the mic.');
-                }
-            } catch (err) {
-                console.error('Speech-to-text error:', err);
-                alert('Speech-to-text error: ' + (err?.message || err));
-            } finally {
-                // Reset UI
-                if (activeMicBtn) {
-                    activeMicBtn.innerHTML = '<i class="fas fa-microphone"></i>';
-                    activeMicBtn.style.background = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
-                    activeMicBtn.disabled = false;
-                    activeMicBtn.classList.remove('recording');
-                }
-            }
-        }
-
-        function stopRecording() {
-            if (!audioContext) return;
-            try {
-                if (processorNode) processorNode.disconnect();
-                if (sourceNode) sourceNode.disconnect();
-                if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-                if (audioContext) audioContext.close();
-            } catch (e) {
-                console.warn("Stop recording cleanup error:", e);
-            } finally {
-                processorNode = null;
-                sourceNode = null;
-                mediaStream = null;
-                audioContext = null;
-            }
-            console.log("Recording stopped.");
-            _stopAndUpload();
-        }
-
-        function bindMicButton(buttonId, inputId) {
-            const btn = document.getElementById(buttonId);
-            const input = document.getElementById(inputId);
-            if (!btn || !input) return;
-
-            // Mouse Events
-            btn.addEventListener('mousedown', () => startRecording(btn, input));
-            btn.addEventListener('mouseup', stopRecording);
-
-            // Touch Events (For Mobile support)
-            btn.addEventListener('touchstart', (e) => {
-                e.preventDefault(); // Prevents long-press context menus
-                startRecording(btn, input);
-            });
-            btn.addEventListener('touchend', stopRecording);
-
-            // Accessibility: Stop if mouse leaves the button while holding
-            btn.addEventListener('mouseleave', stopRecording);
-        }
-
-        bindMicButton('doc_mic_btn', 'doc_question');
-        bindMicButton('web_mic_btn', 'question');
-    </script>
-</body>
-</html>
-"""
-
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE)
+# ═══════════════════════════════════════════════════════════════════════════
+# EXISTING ENDPOINTS (Document & Website Summarization)
+# ═══════════════════════════════════════════════════════════════════════════
 
 @app.route('/summarize/document', methods=['POST'])
 def summarize_document():
@@ -1250,13 +608,20 @@ def text_to_speech():
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("Bridge Document Summarizer - Web Interface")
-    print("Docling + Google Gemini 2.0 Flash")
+    print("Bridge API Backend - Document Summarizer")
+    print("API-only server for browser extension and Flet app")
+    print("Docling + Google Gemini 2.0 Flash + MySQL + ChromaDB")
     print("=" * 60)
     print(f"\nPython executable: {sys.executable}")
     print(f"gTTS available: {GTTS_AVAILABLE}")
-    print("\nServer starting...")
-    print("Open your browser and go to: http://localhost:5000")
+    print(f"Database available: {DB_IMPORTS_AVAILABLE}")
+    print("\nAPI Server starting on http://localhost:5000")
+    print("\nAvailable endpoints:")
+    print("  • /api/register, /api/login - Authentication")
+    print("  • /api/chat - RAG-powered chat")
+    print("  • /summarize/document, /summarize/website - Summarization")
+    print("  • /qa/document, /qa/website - Q&A")
+    print("  • /speech-to-text, /tts - Speech services")
     print("\nPress Ctrl+C to stop the server\n")
     print("=" * 60)
     

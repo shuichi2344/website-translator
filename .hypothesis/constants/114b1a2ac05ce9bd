@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\dismissible.py
-# hypothesis_version: 6.151.9
-
-['background', 'confirm_dismiss', 'content', 'crossAxisEndOffset', 'dismiss', 'dismissDirection', 'dismissThresholds', 'dismissible', 'movementDuration', 'n', 'onConfirmDismiss', 'onDismiss', 'onResize', 'onUpdate', 'resize', 'resizeDuration', 'secondaryBackground', 'update']

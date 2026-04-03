@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\common.py
-# hypothesis_version: 6.151.9
-
-[b'/', '\x01<SANITIZED>', '<SANITIZED>', "=&;:%+~,*@!()/?'$", 'Authorization', 'GET', 'RS256', 'UTF-8', '__iter__', 'access_token', 'acr_values', 'claims', 'client', 'client_id', 'client_secret', 'code', 'code_challenge', 'code_verifier', 'display', 'exp', 'extra_credentials', 'grant_type', 'id_token_hint', 'items', 'login_hint', 'max_age', 'nonce', 'oauthlib', 'prompt', 'redirect_uri', 'refresh_token', 'request_token', 'response_mode', 'response_type', 'scope', 'scopes', 'state', 'token', 'token_type_hint', 'ui_locales', 'user', 'utf-8']

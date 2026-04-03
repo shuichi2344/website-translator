@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\list_tile.py
-# hypothesis_version: 6.151.9
-
-['autofocus', 'bool', 'click', 'contentPadding', 'dense', 'isThreeLine', 'leading', 'listtile', 'long_press', 'n', 'onLongPress', 'onclick', 'selected', 'subtitle', 'title', 'toggleInputs', 'trailing', 'url', 'urlTarget']

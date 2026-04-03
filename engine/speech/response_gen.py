@@ -7,6 +7,25 @@ load_dotenv()
 # Configure your API Key (Add GOOGLE_API_KEY to your .env file)
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
+# Language to dialect mapping
+LANGUAGE_DIALECT_MAP = {
+    "English": "Standard English",
+    "Bahasa Melayu": "Bahasa Melayu (Malaysian Malay)",
+    "Bahasa Indonesia": "Bahasa Indonesia (Indonesian)",
+    "Thai": "Thai",
+    "Vietnamese": "Vietnamese",
+    "Filipino/Tagalog": "Filipino/Tagalog",
+    "Burmese": "Burmese",
+    "Khmer": "Khmer (Cambodian)",
+    "Lao": "Lao",
+    "Chinese (Simplified)": "Simplified Chinese",
+    "Tamil": "Tamil",
+}
+
+def get_dialect_from_language(language):
+    """Convert language name to dialect for response generation"""
+    return LANGUAGE_DIALECT_MAP.get(language, "Standard English")
+
 def generate_final_response(user_question, relevant_chunks, dialect):
     """
     Generates a speech-optimized answer tailored to a specific Southeast Asian dialect.
@@ -20,20 +39,22 @@ def generate_final_response(user_question, relevant_chunks, dialect):
     You are the ASEAN Official Digital Assistant. 
     Your goal is to provide accurate government information based ONLY on the provided snippets.
     
-    TARGET DIALECT: {dialect}
+    TARGET LANGUAGE: {dialect}
     USER QUESTION: {user_question}
     
     OFFICIAL SNIPPETS:
     {context}
     
     INSTRUCTIONS FOR SPEECH-OPTIMIZED OUTPUT:
-    1. YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No".
-    2. DIALECT FLAVOR: Use the vocabulary, sentence structure, and particles of the {dialect}.
-    3. NO WEBSITES OR URLS: Do not mention any website names, portal names, or URLs (e.g., do not say MySikap, ICA, or dot gov).
-    4. DATA ONLY: Focus on the specific fees, document requirements, or eligibility details found in the snippets.
-    5. NO MARKDOWN: DO NOT use bullet points, bolding (**), asterisks (*), or hashtags (#). 
-    6. FLOWING TEXT: Keep the entire response under 80 words for natural-sounding speech.
-    7. STOP ABRUPTLY: Once you have given the factual answer and details, STOP. Do not add a polite closing or a "hope this helps."
+    1. LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
+    2. YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
+    3. DIALECT FLAVOR: Use the vocabulary, sentence structure, and particles of {dialect}.
+    4. NO WEBSITES OR URLS: Do not mention any website names, portal names, or URLs (e.g., do not say MySikap, ICA, or dot gov).
+    5. DATA ONLY: Focus on the specific fees, document requirements, or eligibility details found in the snippets.
+    6. NO MARKDOWN: DO NOT use bullet points, bolding (**), asterisks (*), or hashtags (#). 
+    7. FLOWING TEXT: Keep the entire response under 80 words for natural-sounding speech.
+    8. STOP ABRUPTLY: Once you have given the factual answer and details, STOP. Do not add a polite closing or a "hope this helps."
+    9. Text Simplification (Lexical Level): Automatically replace complex legal or medical jargon with simple, everyday language (e.g., 5th-grade reading level). 
     """
     
     try:
@@ -43,6 +64,7 @@ def generate_final_response(user_question, relevant_chunks, dialect):
         return clean_text
     except Exception as e:
         return f"Sorry, I encountered an error processing that: {str(e)}"
+
 
 # Test run
 # from web_scraping import get_chunks_from_list

@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\datatable.py
-# hypothesis_version: 6.151.9
-
-[1.0, 'bgColor', 'bool', 'border', 'borderRadius', 'c', 'color', 'columnSpacing', 'dataRowColor', 'dataRowMaxHeight', 'dataRowMinHeight', 'dataTextStyle', 'datatable', 'dividerThickness', 'double_tap', 'float', 'gradient', 'headingRowColor', 'headingRowHeight', 'headingTextStyle', 'horizontalLines', 'horizontalMargin', 'item', 'l', 'long_press', 'n', 'numeric', 'obj cannot be empty', 'onDoubleTap', 'onLongPress', 'onSelectAll', 'onSelectChanged', 'onSort', 'onTap', 'onTapCancel', 'onTapDown', 'placeholder', 'r', 'select_all', 'select_changed', 'selected', 'showBottomBorder', 'showCheckboxColumn', 'showEditIcon', 'sort', 'sortAscending', 'sortColumnIndex', 'string', 'tap', 'tap_cancel', 'tap_down', 'tooltip', 'true', 'verticalLines']

@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\expansion_tile.py
-# hypothesis_version: 6.151.9
-
-['affinity', 'bgColor', 'bool', 'change', 'clipBehavior', 'collapsedBgColor', 'collapsedIconColor', 'collapsedShape', 'collapsedTextColor', 'controls', 'controlsPadding', 'crossAxisAlignment', 'expandedAlignment', 'expansiontile', 'iconColor', 'initiallyExpanded', 'leading', 'maintainState', 'n', 'onChange', 'platform', 'shape', 'subtitle', 'textColor', 'tilePadding', 'title', 'trailing']

@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\grant_types\client_credentials.py
-# hypothesis_version: 6.151.9
-
-[200, 'client_credentials', 'client_id', 'grant_type', 'scope']

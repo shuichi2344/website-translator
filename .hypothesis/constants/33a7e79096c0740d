@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\grant_types\authorization_code.py
-# hypothesis_version: 6.151.9
-
-[200, 302, '=', 'Challenge not found', 'Location', 'S256', 'access_token', 'authorization_code', 'client_id', 'code', 'code_challenge', 'fragment', 'grant_type', 'none', 'openid', 'plain', 'query', 'redirect_uri', 'request', 'response_type', 'scope', 'scopes', 'state', 'user']

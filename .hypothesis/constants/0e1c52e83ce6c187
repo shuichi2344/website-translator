@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\audio.py
-# hypothesis_version: 6.151.9
-
-['audio', 'autoplay', 'balance', 'bool', 'duration_changed', 'get_current_position', 'get_duration', 'loaded', 'loop', 'onPositionChanged', 'pause', 'play', 'playbackRate', 'position', 'position_changed', 'release', 'releaseMode', 'resume', 'seek', 'seek_complete', 'src', 'srcBase64', 'state_changed', 'stop', 'volume']

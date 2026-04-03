@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\openid\connect\core\endpoints\userinfo.py
-# hypothesis_version: 6.151.9
-
-[200, 500, 'Content-Type', 'GET', 'application/json', 'application/jwt', 'openid', 'sub']

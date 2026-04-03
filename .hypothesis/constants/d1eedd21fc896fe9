@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\expansion_panel.py
-# hypothesis_version: 6.151.9
-
-['bgColor', 'bool', 'canTapHeader', 'change', 'content', 'dividerColor', 'elevation', 'expanded', 'expandedIconColor', 'expansionpanel', 'expansionpanellist', 'header', 'n', 'onChange', 'spacing']

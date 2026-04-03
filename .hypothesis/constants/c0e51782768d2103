@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\container.py
-# hypothesis_version: 6.151.9
-
-[1.0, 'alignment', 'animate', 'bgColor', 'blendMode', 'blur', 'bool', 'border', 'borderRadius', 'click', 'clipBehavior', 'container', 'content', 'float', 'gradient', 'hover', 'imageFit', 'imageOpacity', 'imageRepeat', 'imageSrc', 'imageSrcBase64', 'ink', 'long_press', 'margin', 'n', 'onHover', 'onLongPress', 'onclick', 'padding', 'shadow', 'shape', 'theme', 'themeMode', 'url', 'urlTarget']

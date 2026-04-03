@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\charts\bar_chart.py
-# hypothesis_version: 6.151.9
-
-['animate', 'b', 'barchart', 'baseliney', 'bgcolor', 'bool', 'border', 'chart_event', 'float', 'groupsSpace', 'horizontalGridLines', 'interactive', 'l', 'maxy', 'miny', 'n', 'onChartEvent', 'r', 't', 'tooltipBgcolor', 'verticalGridLines']

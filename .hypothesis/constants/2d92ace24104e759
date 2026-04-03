@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\errors.py
-# hypothesis_version: 6.151.9
-
-[400, 401, 403, '({}) {}', ', ', 'Bearer ', 'WWW-Authenticate', 'access_denied', 'consent_required', 'description', 'error', 'error="{}"', 'error_description', 'error_uri', 'error_uri="{}"', 'fragment', 'insecure_transport', 'insufficient_scope', 'invalid_client', 'invalid_grant', 'invalid_request', 'invalid_scope', 'invalid_token', 'login_required', 'mismatching_state', 'missing_code', 'missing_token', 'missing_token_type', 'server_error', 'state', 'token_expired', 'unauthorized_client', 'uri']

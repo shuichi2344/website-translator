@@ -25,6 +25,10 @@ llama-cpp-python
 # Vector DB
 chromadb
 
+# MySQL Database
+mysql-connector-python
+bcrypt
+
 # Translation
 deep-translator
 
@@ -33,9 +37,16 @@ firecrawl-py
 
 # Speech / Audio
 soundfile
+sounddevice
 numpy
 pydub
 gTTS
+edge-tts
+pygame
+fast-langdetect
 
 # Optional (push-to-talk desktop mode only)
 pynput
+
+# Search API
+serpapi

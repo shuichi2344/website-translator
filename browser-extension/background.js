@@ -1,4 +1,5 @@
 // Background service worker — detects ASEAN government websites
+// Integrated with MySQL database for user management and chat history
 
 const GOV_DOMAINS = [
   // Malaysia
@@ -26,6 +27,16 @@ const GOV_DOMAINS = [
   // Generic patterns
   'government.', 'ministry.', 'parliament.'
 ];
+
+// Store current user session
+let currentUser = null;
+let currentConversation = null;
+
+// Load user session from storage
+chrome.storage.local.get(['user', 'conversation'], (result) => {
+  if (result.user) currentUser = result.user;
+  if (result.conversation) currentConversation = result.conversation;
+});
 
 function isGovernmentWebsite(url) {
   try {
@@ -69,6 +80,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'login') {
+    login(request.email, request.password)
+      .then(data => sendResponse(data))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'register') {
+    register(request.userData)
+      .then(data => sendResponse(data))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'logout') {
+    currentUser = null;
+    currentConversation = null;
+    chrome.storage.local.remove(['user', 'conversation']);
+    sendResponse({ success: true });
+    return;
+  }
+
   if (request.action === 'speechToText') {
     speechToText(request.audioDataUrl)
       .then(text => sendResponse({ success: true, text }))
@@ -97,19 +130,71 @@ async function generateSummary(url, targetLang = 'en') {
 }
 
 async function askQuestion(url, question, targetLang = 'en') {
-  const formData = new FormData();
-  formData.append('url', url);
-  formData.append('question', question);
-  formData.append('target_lang', targetLang);
+  // Use new chat endpoint with MySQL integration
+  const payload = {
+    user_id: currentUser?.user_id,
+    conversation_id: currentConversation?.conversation_id,
+    message: question,
+    url: url,
+    targetLang: targetLang
+  };
 
-  const response = await fetch('http://localhost:5000/qa/website', {
+  const response = await fetch('http://localhost:5000/api/chat', {
     method: 'POST',
-    body: formData
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   });
 
   if (!response.ok) throw new Error(`Server error: ${response.status}`);
   const data = await response.json();
   if (!data.success) throw new Error(data.error || 'Unknown error');
+  
+  // Update conversation ID if new
+  if (data.data?.conversation_id && !currentConversation) {
+    currentConversation = { conversation_id: data.data.conversation_id };
+    chrome.storage.local.set({ conversation: currentConversation });
+  }
+  
+  return data;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTHENTICATION FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function login(email, password) {
+  const response = await fetch('http://localhost:5000/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+
+  if (!response.ok) throw new Error(`Server error: ${response.status}`);
+  const data = await response.json();
+  
+  if (data.success) {
+    currentUser = data.user_data;
+    chrome.storage.local.set({ user: currentUser });
+  }
+  
+  return data;
+}
+
+async function register(userData) {
+  const response = await fetch('http://localhost:5000/api/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(userData)
+  });
+
+  if (!response.ok) throw new Error(`Server error: ${response.status}`);
+  const data = await response.json();
+  
+  if (data.success) {
+    // Auto-login after registration
+    return await login(userData.email, userData.password);
+  }
+  
   return data;
 }
 

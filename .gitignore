@@ -4,6 +4,8 @@ __pycache__/
 *.pyo
 *.pyd
 *.pyc
+.pytest_cache/
+.hypothesis/
 
 # Virtual environment
 .venv/
@@ -12,6 +14,7 @@ env/
 
 # User data
 user_prefs/
+uploads/
 
 # Environment variables
 .env
@@ -20,6 +23,17 @@ user_prefs/
 .DS_Store
 Thumbs.db
 *.swp
+.vscode/
+.idea/
 
-# database
+# Database
 chroma_db/
+*.sqlite3
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.backup

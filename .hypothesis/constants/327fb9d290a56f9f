@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\oauthlib\oauth2\rfc6749\endpoints\revocation.py
-# hypothesis_version: 6.151.9
-
-[200, '();', 'Cache-Control', 'Content-Type', 'POST', 'Pragma', 'access_token', 'application/json', 'no-cache', 'no-store', 'refresh_token', '{}({});']

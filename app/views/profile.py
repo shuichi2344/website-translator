@@ -7,8 +7,6 @@ from app.components.theme import ACCENT, ACCENT_DARK, apply_theme
 from app.components.controls import selection_tile
 from app.views.preferences import SUPPORTED_LANGUAGES, ASEAN_COUNTRIES
 
-FONT_SIZES = ["Small", "Medium", "Large"]
-
 
 def build_profile_view(page: ft.Page, state: AppState) -> ft.View:
     """Build the /profile view — displays user info and editable preferences."""
@@ -28,6 +26,27 @@ def build_profile_view(page: ft.Page, state: AppState) -> ft.View:
     def handle_language_change(e):
         state.language = e.control.value
         save_state(state)
+        
+        # Update in MySQL database if available
+        try:
+            from engine.database.mysql_handler import MySQLHandler
+            mysql = MySQLHandler()
+            cursor = mysql.connection.cursor()
+            cursor.execute(
+                "UPDATE users SET language = %s WHERE user_id = %s",
+                (state.language, state.user_id)
+            )
+            mysql.connection.commit()
+            cursor.close()
+            print(f"✅ Language updated to {state.language}")
+        except Exception as ex:
+            print(f"⚠️ Could not update language in database: {ex}")
+        
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text(f"Language changed to {state.language}", color=ft.colors.WHITE),
+            bgcolor=accent,
+        )
+        page.snack_bar.open = True
         page.update()
 
     language_dropdown = ft.Dropdown(
@@ -46,6 +65,27 @@ def build_profile_view(page: ft.Page, state: AppState) -> ft.View:
     def handle_country_change(e):
         state.country = e.control.value
         save_state(state)
+        
+        # Update in MySQL database if available
+        try:
+            from engine.database.mysql_handler import MySQLHandler
+            mysql = MySQLHandler()
+            cursor = mysql.connection.cursor()
+            cursor.execute(
+                "UPDATE users SET country = %s WHERE user_id = %s",
+                (state.country, state.user_id)
+            )
+            mysql.connection.commit()
+            cursor.close()
+            print(f"✅ Country updated to {state.country}")
+        except Exception as ex:
+            print(f"⚠️ Could not update country in database: {ex}")
+        
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text(f"Country changed to {state.country}", color=ft.colors.WHITE),
+            bgcolor=accent,
+        )
+        page.snack_bar.open = True
         page.update()
 
     country_dropdown = ft.Dropdown(
@@ -59,45 +99,6 @@ def build_profile_view(page: ft.Page, state: AppState) -> ft.View:
         text_size=state.font_sp(),
         expand=True,
     )
-
-    # --- Font size tiles ---
-    font_tiles_row = ft.Row(spacing=8, expand=True)
-
-    def _build_font_tiles():
-        font_tiles_row.controls = [
-            selection_tile(
-                label=size,
-                selected=(size == state.font_size),
-                on_click=_make_font_handler(size),
-                state=state,
-            )
-            for size in FONT_SIZES
-        ]
-
-    def _make_font_handler(size: str):
-        def handler(e):
-            state.font_size = size
-            save_state(state)
-            page.go("/profile")
-        return handler
-
-    _build_font_tiles()
-
-    # --- Dark mode switch ---
-    dark_switch = ft.Switch(
-        label="Dark Mode",
-        value=state.theme_mode == "Dark",
-        active_color=accent,
-        label_style=ft.TextStyle(color=state.text_color(), size=state.font_sp()),
-    )
-
-    def handle_switch_change(e):
-        state.theme_mode = "Dark" if dark_switch.value else "Light"
-        save_state(state)
-        apply_theme(page, state)
-        page.go("/profile")
-
-    dark_switch.on_change = handle_switch_change
 
     # --- Log out button ---
     logout_btn = ft.ElevatedButton(
@@ -116,12 +117,12 @@ def build_profile_view(page: ft.Page, state: AppState) -> ft.View:
     # --- Scrollable content ---
     content = ft.ListView(
         controls=[
-            # User avatar + username
+            # User avatar + username + email
             ft.Container(
                 content=ft.Column(
                     controls=[
                         ft.Icon(
-                            ft.icons.PERSON_CIRCLE_OUTLINED,
+                            ft.icons.ACCOUNT_CIRCLE,
                             size=64,
                             color=accent,
                         ),
@@ -131,9 +132,14 @@ def build_profile_view(page: ft.Page, state: AppState) -> ft.View:
                             weight=ft.FontWeight.BOLD,
                             color=state.text_color(),
                         ),
+                        ft.Text(
+                            state.email if state.email else "",
+                            size=state.font_sp() - 2,
+                            color=ft.colors.with_opacity(0.7, state.text_color()),
+                        ),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=8,
+                    spacing=4,
                 ),
                 alignment=ft.alignment.center,
                 padding=ft.padding.only(bottom=24),
@@ -149,18 +155,6 @@ def build_profile_view(page: ft.Page, state: AppState) -> ft.View:
             section_header("Country"),
             ft.Container(height=8),
             country_dropdown,
-            ft.Container(height=24),
-
-            # Text size section
-            section_header("Text Size"),
-            ft.Container(height=8),
-            font_tiles_row,
-            ft.Container(height=24),
-
-            # Display mode section
-            section_header("Display Mode"),
-            ft.Container(height=8),
-            dark_switch,
             ft.Container(height=32),
 
             # Log out

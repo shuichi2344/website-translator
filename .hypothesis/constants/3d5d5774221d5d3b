@@ -1,4 +1,0 @@
-# file: C:\Users\chook\AppData\Roaming\Python\Python313\site-packages\flet_core\form_field_control.py
-# hypothesis_version: 6.151.9
-
-['bgcolor', 'border', 'borderColor', 'borderRadius', 'borderWidth', 'color', 'contentPadding', 'counterStyle', 'counterText', 'dense', 'errorStyle', 'errorText', 'filled', 'focusedBgcolor', 'focusedBorderColor', 'focusedBorderWidth', 'focusedColor', 'helperStyle', 'helperText', 'hintStyle', 'hintText', 'icon', 'label', 'labelStyle', 'n', 'none', 'outline', 'prefix', 'prefixIcon', 'prefixStyle', 'prefixText', 'suffix', 'suffixIcon', 'suffixStyle', 'suffixText', 'textSize', 'textStyle', 'underline']
