@@ -901,16 +901,14 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         audio_file[0] = temp_file.name
                         temp_file.close()
                         
-                        # Generate audio using edge-tts with a reliable voice
+                        # Generate audio using edge-tts with language-appropriate voice
                         async def generate_audio():
-                            # Use en-US-AriaNeural (more reliable) or en-GB-SoniaNeural
-                            # List of fallback voices in order of preference
-                            voices = [
-                                "en-US-AriaNeural",
-                                "en-GB-SoniaNeural", 
-                                "en-AU-NatashaNeural",
-                                "en-US-JennyNeural"
-                            ]
+                            # Get voices for user's selected language
+                            from engine.speech.language_voice_mapping import get_voices_for_language
+                            voices = get_voices_for_language(state.language)
+                            
+                            print(f"🔊 TTS for language: {state.language}")
+                            print(f"🎤 Trying voices: {voices}")
                             
                             last_error = None
                             for voice in voices:

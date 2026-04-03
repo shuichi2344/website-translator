@@ -542,15 +542,17 @@ def _run_whisper_on_wav(wav_path: str) -> str:
 @app.route('/tts', methods=['POST'])
 def text_to_speech():
     """
-    Server-side TTS using gTTS (Google Text-to-Speech).
-    Supports all ASEAN languages. Returns audio/mpeg.
-    Accepts JSON: { "text": "...", "lang": "ta" }
+    Server-side TTS using edge-tts (Microsoft Edge Text-to-Speech).
+    Supports all ASEAN languages with neural voices.
+    Returns audio/mpeg.
+    Accepts JSON: { "text": "...", "lang": "en" }
     """
-    if not GTTS_AVAILABLE:
-        print("❌ gTTS not available")
-        return jsonify({'success': False, 'error': 'gTTS module not installed'}), 500
-
     try:
+        import asyncio
+        import edge_tts
+        import tempfile
+        import os
+        
         data = request.get_json(force=True)
         text = (data.get('text') or '').strip()
         lang = (data.get('lang') or 'en').strip()
@@ -562,41 +564,73 @@ def text_to_speech():
         print(f"🔊 TTS request: lang={lang}, text_length={len(text)}")
         print(f"   First 100 chars: {text[:100]}")
 
-        # gTTS lang code map — handles variants
-        # Supported: en, ms, id, vi, th, zh-CN, zh-TW, ta, tl, my, km
-        # NOT supported by gTTS: lo (Lao) - will fall back to English
-        lang_map = {
-            'zh-cn': 'zh-CN',
-            'zh-tw': 'zh-TW',
-            'tl':    'tl',   # Filipino/Tagalog
-            'ta':    'ta',   # Tamil
-            'my':    'my',   # Burmese/Myanmar
-            'km':    'km',   # Khmer
-            'lo':    'en',   # Lao → fallback to English (not supported by gTTS)
-            'vi':    'vi',   # Vietnamese
-            'th':    'th',   # Thai
-            'id':    'id',   # Indonesian
-            'ms':    'ms',   # Malay
-            'en':    'en',   # English
+        # Map language codes to full language names
+        lang_code_to_name = {
+            'en': 'English',
+            'ms': 'Bahasa Melayu',
+            'id': 'Bahasa Indonesia',
+            'th': 'Thai',
+            'vi': 'Vietnamese',
+            'tl': 'Filipino/Tagalog',
+            'my': 'Burmese',
+            'km': 'Khmer',
+            'lo': 'Lao',
+            'zh-cn': 'Chinese (Simplified)',
+            'ta': 'Tamil'
         }
-        gtts_lang = lang_map.get(lang, 'en')  # Default to English if unknown
         
-        if lang == 'lo':
-            print(f"   ⚠️  Lao (lo) not supported by gTTS, falling back to English")
+        language_name = lang_code_to_name.get(lang, 'English')
+        print(f"   Language: {language_name}")
         
-        print(f"   Using gTTS lang code: {gtts_lang}")
-
-        print("   Creating gTTS object...")
-        tts = gTTS(text=text, lang=gtts_lang, slow=False)
+        # Get voices for the language
+        from engine.speech.language_voice_mapping import get_voices_for_language
+        voices = get_voices_for_language(language_name)
+        print(f"   Trying voices: {voices}")
         
-        print("   Generating audio...")
-        buf = io.BytesIO()
-        tts.write_to_fp(buf)
-        buf.seek(0)
-        audio_bytes = buf.read()
-
+        # Generate audio using edge-tts
+        async def generate_audio():
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+            temp_path = temp_file.name
+            temp_file.close()
+            
+            last_error = None
+            for voice in voices:
+                try:
+                    print(f"   Attempting voice: {voice}")
+                    communicate = edge_tts.Communicate(text, voice)
+                    await communicate.save(temp_path)
+                    print(f"✅ TTS generated with voice: {voice}")
+                    return temp_path  # Success
+                except Exception as e:
+                    last_error = e
+                    print(f"⚠️ Voice {voice} failed: {e}")
+                    continue
+            
+            # If all voices failed, raise the last error
+            if last_error:
+                raise last_error
+            
+            raise Exception("No voices available")
+        
+        # Run async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            audio_path = loop.run_until_complete(generate_audio())
+        finally:
+            loop.close()
+        
+        # Read audio file
+        with open(audio_path, 'rb') as f:
+            audio_bytes = f.read()
+        
+        # Clean up temp file
+        try:
+            os.unlink(audio_path)
+        except:
+            pass
+        
         print(f"✅ TTS generated {len(audio_bytes)} bytes")
-
         return Response(audio_bytes, mimetype='audio/mpeg')
 
     except Exception as e:
