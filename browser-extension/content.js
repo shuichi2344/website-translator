@@ -22,8 +22,8 @@ function showFloatingButton(url) {
   fab.id = 'bridge-fab';
   fab.innerHTML = `
     <div id="bridge-fab-inner">
-      <span style="font-size:18px;">📄</span>
-      <span>Summarise This Page</span>
+      <span style="font-size:18px;">🤖</span>
+      <span>Bridge Assistant</span>
     </div>
   `;
 
@@ -39,7 +39,7 @@ function showFloatingButton(url) {
       display: flex;
       align-items: center;
       gap: 10px;
-      background: linear-gradient(135deg, #7C3AED 0%, #2563EB 100%);
+      background: linear-gradient(135deg, #0066CC 0%, #6B5FD9 25%, #E991CC 75%, #7DD3C0 100%);
       color: #fff;
       padding: 14px 22px;
       border-radius: 50px;
@@ -88,13 +88,18 @@ function showLanguagePickerPanel(url) {
   summaryPanel.innerHTML = `
     <div id="bridge-panel-inner">
       <div id="bridge-panel-header">
-        <div id="bridge-panel-title">📄 Bridge Summary</div>
+        <div id="bridge-panel-title">📄 Bridge</div>
         <button id="bridge-close-btn" aria-label="Close">✕</button>
       </div>
       <div id="bridge-scroll-area">
         <div id="bridge-panel-body">
-          <p style="font-size:14px;font-weight:600;color:#333;margin:0 0 14px;">Choose your summary language:</p>
+          <p style="font-size:14px;font-weight:600;color:#333;margin:0 0 14px;">Choose your language:</p>
           <div id="bridge-lang-grid"></div>
+          <p style="font-size:14px;font-weight:600;color:#333;margin:20px 0 10px;">What would you like to do?</p>
+          <div style="display:flex;gap:10px;padding-bottom:20px;">
+            <button id="bridge-action-summarise" class="bridge-action-btn">📄 Summarise Page</button>
+            <button id="bridge-action-ask" class="bridge-action-btn">💬 Ask Question</button>
+          </div>
         </div>
       </div>
     </div>
@@ -111,12 +116,43 @@ function showLanguagePickerPanel(url) {
       btn.textContent = label;
       btn.dataset.value = value;
       btn.addEventListener('click', () => {
+        // Update selection visually
+        document.querySelectorAll('.bridge-lang-pick-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
         chrome.storage.sync.set({ targetLang: value });
-        generateAndShowSummary(url);
       });
       grid.appendChild(btn);
     });
+
+    // Action buttons
+    document.getElementById('bridge-action-summarise').addEventListener('click', () => {
+      generateAndShowSummary(url);
+    });
+    
+    document.getElementById('bridge-action-ask').addEventListener('click', () => {
+      showQuestionPanel(url);
+    });
   });
+}
+
+// ─── Question-only panel (no summary needed) ─────────────────────────────────
+function showQuestionPanel(url) {
+  currentUrl = url;
+  createPanelShell('💬 Ask Questions');
+  
+  document.getElementById('bridge-panel-body').innerHTML = `
+    <p style="text-align:center;color:#666;margin:20px 0;">Ask me a question about this website.</p>
+  `;
+
+  // Show Q&A input immediately
+  const inputRow = document.getElementById('bridge-qa-input-row');
+  inputRow.style.display = 'flex';
+
+  document.getElementById('bridge-send-btn').addEventListener('click', submitQuestion);
+  document.getElementById('bridge-qa-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitQuestion();
+  });
+  document.getElementById('bridge-mic-btn').addEventListener('click', toggleMic);
 }
 
 // ─── Fetch summary and display panel ─────────────────────────────────────────
@@ -236,7 +272,7 @@ function injectPanelStyles() {
       border: 1.5px solid #e0e0e0;
     }
     #bridge-panel-header {
-      background: linear-gradient(135deg, #7C3AED 0%, #2563EB 100%);
+      background: linear-gradient(135deg, #0066CC 0%, #6B5FD9 25%, #E991CC 75%, #7DD3C0 100%);
       color: #fff;
       padding: 16px 20px;
       display: flex;
@@ -295,7 +331,7 @@ function injectPanelStyles() {
       outline: none;
       transition: border-color 0.15s;
     }
-    #bridge-lang-select:focus { border-color: #7C3AED; }
+    #bridge-lang-select:focus { border-color: #6B5FD9; }
     #bridge-lang-select option { background: #fff; color: #111; }
 
     /* Single unified scroll area */
@@ -339,7 +375,7 @@ function injectPanelStyles() {
     .bridge-btn {
       flex: 1;
       padding: 10px;
-      background: linear-gradient(135deg, #7C3AED 0%, #2563EB 100%);
+      background: #6B5FD9;
       color: #fff;
       border: none;
       border-radius: 8px;
@@ -352,7 +388,7 @@ function injectPanelStyles() {
     .bridge-spinner {
       width: 36px; height: 36px;
       border: 3px solid #e0e0e0;
-      border-top-color: #7C3AED;
+      border-top-color: #6B5FD9;
       border-radius: 50%;
       animation: bridge-spin 0.8s linear infinite;
       margin: 24px auto 12px;
@@ -372,7 +408,7 @@ function injectPanelStyles() {
       padding: 10px;
       text-align: center;
     }
-    .bridge-stat-val { font-size: 20px; font-weight: 700; color: #7C3AED; }
+    .bridge-stat-val { font-size: 20px; font-weight: 700; color: #6B5FD9; }
     .bridge-stat-lbl { font-size: 11px; color: #888; margin-top: 2px; }
 
     /* ── Q&A section ── */
@@ -386,7 +422,7 @@ function injectPanelStyles() {
     }
     .bridge-bubble.user {
       align-self: flex-end;
-      background: linear-gradient(135deg, #7C3AED 0%, #2563EB 100%);
+      background: #6B5FD9;
       color: #fff;
       border-bottom-right-radius: 4px;
     }
@@ -423,7 +459,7 @@ function injectPanelStyles() {
       color: #111;
       transition: border-color 0.15s;
     }
-    #bridge-qa-input:focus { border-color: #7C3AED; }
+    #bridge-qa-input:focus { border-color: #6B5FD9; }
     #bridge-qa-input::placeholder { color: #aaa; }
     .bridge-icon-btn {
       width: 36px;
@@ -441,7 +477,7 @@ function injectPanelStyles() {
     .bridge-icon-btn:hover { opacity: 0.85; transform: scale(1.05); }
     .bridge-icon-btn:active { transform: scale(0.95); }
     #bridge-send-btn {
-      background: linear-gradient(135deg, #7C3AED 0%, #2563EB 100%);
+      background: #6B5FD9;
       color: #fff;
     }
     #bridge-mic-btn {
@@ -477,13 +513,32 @@ function injectPanelStyles() {
       font-family: inherit;
     }
     .bridge-lang-pick-btn:hover {
-      border-color: #7C3AED;
-      background: #f5f0ff;
+      border-color: #6B5FD9;
+      background: #F0EDFF;
     }
     .bridge-lang-pick-btn.selected {
-      border-color: #7C3AED;
-      background: linear-gradient(135deg, #7C3AED 0%, #2563EB 100%);
+      border-color: #6B5FD9;
+      background: #6B5FD9;
       color: #fff;
+    }
+    .bridge-action-btn {
+      flex: 1;
+      padding: 12px 16px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 10px;
+      background: #fff;
+      color: #333;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .bridge-action-btn:hover {
+      border-color: #6B5FD9;
+      background: #F0EDFF;
+      transform: translateY(-1px);
     }
   `;
   document.head.appendChild(s);
@@ -549,9 +604,24 @@ function showSummaryPanel(data) {
     });
   });
 
+  let isPlaying = false;
+  let currentAudio = null;
+
   document.getElementById('bridge-speak-btn').addEventListener('click', async () => {
     const speakBtn = document.getElementById('bridge-speak-btn');
     
+    // If already playing, toggle pause/resume
+    if (isPlaying && currentAudio) {
+      if (currentAudio.paused) {
+        currentAudio.play();
+        speakBtn.textContent = '⏸️ Pause';
+      } else {
+        currentAudio.pause();
+        speakBtn.textContent = '▶️ Resume';
+      }
+      return;
+    }
+
     // Stop any existing audio
     if (window.bridgeAudio) {
       window.bridgeAudio.pause();
@@ -588,21 +658,29 @@ function showSummaryPanel(data) {
       const audioUrl = URL.createObjectURL(audioBlob);
       
       window.bridgeAudio = new Audio(audioUrl);
+      currentAudio = window.bridgeAudio;
+      
       window.bridgeAudio.onplay = () => {
         console.log('[Bridge TTS] Playback started');
-        speakBtn.textContent = '🔊 Playing...';
+        isPlaying = true;
+        // Re-enable button when playing
+        speakBtn.disabled = false;
+        speakBtn.style.opacity = '1';
+        speakBtn.style.cursor = 'pointer';
+        speakBtn.textContent = '⏸️ Pause';
       };
       window.bridgeAudio.onended = () => {
         console.log('[Bridge TTS] Playback finished');
         URL.revokeObjectURL(audioUrl);
-        // Re-enable button
-        speakBtn.disabled = false;
-        speakBtn.style.opacity = '1';
-        speakBtn.style.cursor = 'pointer';
+        isPlaying = false;
+        currentAudio = null;
+        // Reset button
         speakBtn.textContent = originalText;
       };
       window.bridgeAudio.onerror = (e) => {
         console.error('[Bridge TTS] Audio error:', e);
+        isPlaying = false;
+        currentAudio = null;
         // Re-enable button on error
         speakBtn.disabled = false;
         speakBtn.style.opacity = '1';
@@ -614,6 +692,8 @@ function showSummaryPanel(data) {
     } catch (error) {
       console.error('[Bridge TTS] Error:', error);
       alert('Text-to-speech failed. Make sure the Flask server is running at http://localhost:5000');
+      isPlaying = false;
+      currentAudio = null;
       // Re-enable button on error
       speakBtn.disabled = false;
       speakBtn.style.opacity = '1';
@@ -691,15 +771,23 @@ async function submitQuestion() {
     });
 
     thinking.remove();
+    
+    // Check if response exists and has expected structure
+    if (!response) {
+      addBubble('⚠️ No response from server. Make sure the Flask server is running.', 'bot');
+      return;
+    }
+    
     if (response.success) {
-      const answer = response.data.summary ?? response.data.answer ?? JSON.stringify(response.data);
+      const answer = response.data?.summary ?? response.data?.answer ?? JSON.stringify(response.data);
       addBubble(answer, 'bot');
     } else {
-      addBubble(`⚠️ ${response.error}`, 'bot');
+      addBubble(`⚠️ ${response.error || 'Unknown error occurred'}`, 'bot');
     }
   } catch (err) {
     thinking.remove();
-    addBubble(`⚠️ ${err.message}`, 'bot');
+    addBubble(`⚠️ ${err.message || 'Failed to get answer'}`, 'bot');
+    console.error('[Bridge Q&A] Error:', err);
   }
 
   // Scroll unified area to bottom
@@ -712,12 +800,149 @@ function addBubble(text, role) {
   if (!log) return null;
   const el = document.createElement('div');
   el.className = `bridge-bubble ${role}`;
+  
   if (role === 'bot') {
+    // Bot message with speaker button at the bottom
     el.innerHTML = formatBotText(text);
+    
+    // Add a line break container
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.cssText = 'margin-top:8px;';
+    
+    // Speaker button with its own state
+    const speakerBtn = document.createElement('button');
+    let btnIsPlaying = false;
+    let btnAudio = null;
+    
+    speakerBtn.innerHTML = '🔊 Listen';
+    speakerBtn.title = 'Listen to this answer';
+    speakerBtn.style.cssText = `
+      background:transparent;
+      border:1px solid #e0e0e0;
+      border-radius:6px;
+      padding:4px 10px;
+      cursor:pointer;
+      font-size:12px;
+      transition:all 0.2s;
+      color:#888;
+      display:inline-block;
+      font-family:inherit;
+      font-weight:500;
+    `;
+    
+    speakerBtn.addEventListener('mouseenter', () => {
+      speakerBtn.style.background = '#f5f5f5';
+      speakerBtn.style.borderColor = '#6B5FD9';
+      speakerBtn.style.color = '#6B5FD9';
+    });
+    speakerBtn.addEventListener('mouseleave', () => {
+      if (!btnIsPlaying) {
+        speakerBtn.style.background = 'transparent';
+        speakerBtn.style.borderColor = '#e0e0e0';
+        speakerBtn.style.color = '#888';
+      }
+    });
+    
+    speakerBtn.addEventListener('click', async () => {
+      // If already playing, toggle pause/resume
+      if (btnIsPlaying && btnAudio) {
+        if (btnAudio.paused) {
+          btnAudio.play();
+          speakerBtn.innerHTML = '⏸️ Pause';
+          speakerBtn.title = 'Pause';
+        } else {
+          btnAudio.pause();
+          speakerBtn.innerHTML = '▶️ Resume';
+          speakerBtn.title = 'Resume';
+        }
+        return;
+      }
+      
+      // Stop any existing audio
+      if (window.bridgeAudio) {
+        window.bridgeAudio.pause();
+        window.bridgeAudio = null;
+      }
+      
+      const sel = document.getElementById('bridge-lang-select');
+      const langCode = sel ? sel.value : 'en';
+      
+      // Disable button and show loading
+      speakerBtn.disabled = true;
+      speakerBtn.style.opacity = '0.5';
+      speakerBtn.style.cursor = 'not-allowed';
+      speakerBtn.innerHTML = '🔄 Loading...';
+      
+      try {
+        const response = await fetch('http://localhost:5000/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: text,
+            lang: langCode
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`TTS server error: ${response.status}`);
+        }
+        
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        window.bridgeAudio = new Audio(audioUrl);
+        btnAudio = window.bridgeAudio;
+        
+        window.bridgeAudio.onplay = () => {
+          btnIsPlaying = true;
+          // Re-enable button when playing
+          speakerBtn.disabled = false;
+          speakerBtn.style.opacity = '1';
+          speakerBtn.style.cursor = 'pointer';
+          speakerBtn.innerHTML = '⏸️ Pause';
+          speakerBtn.title = 'Pause';
+        };
+        window.bridgeAudio.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          btnIsPlaying = false;
+          btnAudio = null;
+          speakerBtn.innerHTML = '🔊 Listen';
+          speakerBtn.title = 'Listen to this answer';
+        };
+        window.bridgeAudio.onerror = (e) => {
+          console.error('[Bridge TTS] Audio error:', e);
+          btnIsPlaying = false;
+          btnAudio = null;
+          speakerBtn.disabled = false;
+          speakerBtn.style.opacity = '1';
+          speakerBtn.style.cursor = 'pointer';
+          speakerBtn.innerHTML = '🔊 Listen';
+          speakerBtn.title = 'Listen to this answer';
+        };
+        
+        await window.bridgeAudio.play();
+      } catch (error) {
+        console.error('[Bridge TTS] Error:', error);
+        alert('Text-to-speech failed. Make sure the Flask server is running.');
+        btnIsPlaying = false;
+        btnAudio = null;
+        speakerBtn.disabled = false;
+        speakerBtn.style.opacity = '1';
+        speakerBtn.style.cursor = 'pointer';
+        speakerBtn.innerHTML = '🔊 Listen';
+        speakerBtn.title = 'Listen to this answer';
+      }
+    });
+    
+    // Append speaker button inside a container at the bottom
+    buttonContainer.appendChild(speakerBtn);
+    el.appendChild(buttonContainer);
+    log.appendChild(el);
   } else {
     el.textContent = text;
+    log.appendChild(el);
   }
-  log.appendChild(el);
+  
   // Scroll the unified scroll area to bottom
   const scrollArea = document.getElementById('bridge-scroll-area');
   if (scrollArea) scrollArea.scrollTop = scrollArea.scrollHeight;
@@ -745,18 +970,23 @@ function formatBotText(text) {
   const isNumbered = lines.every(l => /^\d+\./.test(l));
 
   if (isNumbered) {
-    const items = lines.map(l => `<li>${escapeHtml(l.replace(/^\d+\.\s*/, ''))}</li>`).join('');
-    return `<ol style="margin:4px 0 0 16px;padding:0;">${items}</ol>`;
+    const items = lines.map(l => `<li style="margin-bottom:6px;">${escapeHtml(l.replace(/^\d+\.\s*/, ''))}</li>`).join('');
+    return `<ol style="margin:8px 0 8px 20px;padding:0;line-height:1.6;">${items}</ol>`;
   }
 
-  // Otherwise render as separate paragraphs / bullet lines
-  return lines.map(l => {
-    // Lines that already start with a dash or bullet
-    if (/^[-•*]/.test(l)) {
-      return `<li>${escapeHtml(l.replace(/^[-•*]\s*/, ''))}</li>`;
-    }
-    return `<p style="margin:0 0 6px 0;">${escapeHtml(l)}</p>`;
-  }).join('');
+  // Check if lines start with bullet markers
+  const hasBullets = lines.some(l => /^[-•*]/.test(l));
+  
+  if (hasBullets) {
+    const items = lines.map(l => {
+      const cleaned = l.replace(/^[-•*]\s*/, '');
+      return `<li style="margin-bottom:6px;">${escapeHtml(cleaned)}</li>`;
+    }).join('');
+    return `<ul style="margin:8px 0 8px 20px;padding:0;line-height:1.6;">${items}</ul>`;
+  }
+
+  // Otherwise render as separate paragraphs
+  return lines.map(l => `<p style="margin:0 0 8px 0;">${escapeHtml(l)}</p>`).join('');
 }
 
 // ─── Mic: record → speech-to-text → fill input ───────────────────────────────

@@ -4,22 +4,22 @@ import flet as ft
 
 from app.state import AppState
 
-# Purple-to-blue gradient palette
-ACCENT        = "#7C3AED"   # violet-600  (light mode primary)
-ACCENT_DARK   = "#A78BFA"   # violet-400  (dark mode primary)
-ACCENT_BLUE   = "#2563EB"   # blue-600
-ACCENT_BLUE_DARK = "#60A5FA"  # blue-400
+# Blue → Purple → Pink → Mint gradient
+ACCENT        = "#6B5FD9"   # Purple (primary accent)
+ACCENT_DARK   = "#7DD3C0"   # Mint (dark mode accent)
+ACCENT_BLUE   = "#0066CC"   # Deep blue (secondary)
+ACCENT_BLUE_DARK = "#E991CC"  # Pink (dark mode)
 
-# Gradient stops used across the app
-GRAD_START    = "#7C3AED"   # purple
-GRAD_END      = "#2563EB"   # blue
+# Multi-color gradient
+GRAD_START    = "#0066CC"   # Deep blue
+GRAD_END      = "#7DD3C0"   # Mint
 
-GRAD_START_DARK  = "#A78BFA"
-GRAD_END_DARK    = "#60A5FA"
+GRAD_START_DARK  = "#0066CC"  # Deep blue
+GRAD_END_DARK    = "#7DD3C0"  # Mint
 
 
 def accent_gradient(dark: bool = False) -> ft.LinearGradient:
-    """Horizontal purple→blue gradient for backgrounds and fills."""
+    """Blue → Purple → Pink → Mint gradient for both light and dark modes."""
     return ft.LinearGradient(
         begin=ft.alignment.center_left,
         end=ft.alignment.center_right,
