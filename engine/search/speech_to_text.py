@@ -10,6 +10,7 @@ import torch
 from llama_cpp import Llama
 import soundfile as sf
 from typing import Tuple
+from engine.gpu_accelerator import get_device_for_transformers, get_torch_dtype
 
 # Prevent torch._dynamo from registering noisy/slow atexit handlers (Windows often looks "hung" on exit).
 # This app does not rely on torch.compile, so disabling Dynamo is safe here.
@@ -37,10 +38,15 @@ def get_asr_pipe():
     if _asr_pipe is not None:
         return _asr_pipe
     
-    device = 0 if torch.cuda.is_available() else -1
-    dtype = torch.float16 if device == 0 else torch.float32
+    device = get_device_for_transformers()
+    dtype = get_torch_dtype()
     
     print(f"--- Loading ASR Model: {ASR_MODEL} ---")
+    if device == 0:
+        print(f"🚀 Using GPU with {dtype}")
+    else:
+        print(f"💻 Using CPU with {dtype}")
+    
     _asr_pipe = pipeline(
         "automatic-speech-recognition",
         model=ASR_MODEL,

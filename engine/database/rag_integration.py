@@ -8,6 +8,7 @@ from sentence_transformers import SentenceTransformer
 
 from engine.database.mysql_handler import MySQLHandler
 from engine.database.chroma_singleton import get_chroma_client, get_chroma_collection
+from engine.gpu_accelerator import load_sentence_transformer, get_optimal_batch_size
 
 
 class RAGIntegration:
@@ -39,9 +40,10 @@ class RAGIntegration:
         )
         
         # Embedding model
-        print("🔄 Loading embedding model...")
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-        print("✅ Embedding model loaded")
+        print("🔄 Loading embedding model with GPU acceleration...")
+        self.embedding_model = load_sentence_transformer('all-MiniLM-L6-v2')
+        self.batch_size = get_optimal_batch_size(default_cpu=8, default_gpu=32)
+        print(f"✅ Embedding model loaded (batch size: {self.batch_size})")
         
         # Mark as initialized
         RAGIntegration._initialized = True

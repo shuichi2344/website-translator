@@ -49,10 +49,10 @@ def generate_final_response(user_question, relevant_chunks, dialect):
     1. LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
     2. YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
     3. DIALECT FLAVOR: Use the vocabulary, sentence structure, and particles of {dialect}.
-    4. NO WEBSITES OR URLS: Do not mention any website names, portal names, or URLs (e.g., do not say MySikap, ICA, or dot gov).
+    4. NO WEBSITES OR URLS: Do not mention any URLs (e.g., do not say MySikap, ICA, or dot gov).
     5. DATA ONLY: Focus on the specific fees, document requirements, or eligibility details found in the snippets.
-    6. NO MARKDOWN: DO NOT use bullet points, bolding (**), asterisks (*), or hashtags (#). 
-    7. FLOWING TEXT: Keep the entire response under 80 words for natural-sounding speech.
+    6. NO MARKDOWN: DO NOT bolding (**), asterisks (*), or hashtags (#). 
+    7. FLOWING TEXT: Keep the entire response under 80 words for natural-sounding speech. You can use bullet points.
     8. STOP ABRUPTLY: Once you have given the factual answer and details, STOP. Do not add a polite closing or a "hope this helps."
     9. Text Simplification (Lexical Level): Automatically replace complex legal or medical jargon with simple, everyday language (e.g., 5th-grade reading level). 
     """

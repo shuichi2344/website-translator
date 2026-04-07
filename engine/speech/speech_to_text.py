@@ -5,6 +5,7 @@ from transformers import pipeline
 import warnings
 import torch
 from llama_cpp import Llama
+from engine.gpu_accelerator import get_device_for_transformers, get_torch_dtype
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 
@@ -28,10 +29,15 @@ def get_asr_pipe():
     if _asr_pipe is not None:
         return _asr_pipe
     
-    device = 0 if torch.cuda.is_available() else -1
-    dtype = torch.float16 if device == 0 else torch.float32
+    device = get_device_for_transformers()
+    dtype = get_torch_dtype()
     
     print(f"--- Loading ASR Model: {ASR_MODEL} ---")
+    if device == 0:
+        print(f"🚀 Using GPU with {dtype}")
+    else:
+        print(f"💻 Using CPU with {dtype}")
+    
     _asr_pipe = pipeline(
         "automatic-speech-recognition",
         model=ASR_MODEL,

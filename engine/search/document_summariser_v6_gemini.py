@@ -12,6 +12,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
 from dotenv import load_dotenv
+from engine.gpu_accelerator import load_sentence_transformer, get_optimal_batch_size, is_gpu_available
 
 warnings.filterwarnings('ignore')
 load_dotenv()
@@ -189,13 +190,12 @@ class DocumentSummarizer:
         return None
     
     def _init_embeddings(self):
-        """Initialize EmbeddingGemma-300M for semantic search and RAG"""
+        """Initialize EmbeddingGemma-300M for semantic search and RAG with GPU acceleration"""
         try:
-            from sentence_transformers import SentenceTransformer
             import os
             
             # Get Hugging Face token from environment
-            hf_token = os.getenv('HUGGINGFACE_TOKEN')
+            hf_token = os.getenv('HUGGINGFACE_TOKEN') or os.getenv('HF_TOKEN')
             
             if hf_token and hf_token != 'your-huggingface-token-here':
                 # Login to Hugging Face
@@ -206,15 +206,27 @@ class DocumentSummarizer:
                 except:
                     pass
             
-            self.embedding_model = SentenceTransformer("google/embeddinggemma-300m")
+            # Load model with GPU acceleration
+            self.embedding_model = load_sentence_transformer("google/embeddinggemma-300m")
+            self.batch_size = get_optimal_batch_size(default_cpu=8, default_gpu=32)
+            
             print("✅ EmbeddingGemma-300M initialized successfully")
             print("   • 300M parameters, 768-dimensional embeddings")
             print("   • Optimized for semantic search and retrieval")
             print("   • Supports 100+ languages including all ASEAN languages")
+            print(f"   • Batch size: {self.batch_size}")
+            if is_gpu_available():
+                print("   • 🚀 GPU acceleration enabled")
+            else:
+                print("   • 💻 Running on CPU")
             
         except ImportError:
             print("⚠️  sentence-transformers not installed")
             print("   Install with: pip install sentence-transformers")
+            print("   Continuing without embedding-based RAG...")
+            self.use_embeddings = False
+        except Exception as e:
+            print(f"⚠️  Error initializing embeddings: {e}")
             print("   Continuing without embedding-based RAG...")
             self.use_embeddings = False
         except Exception as e:
