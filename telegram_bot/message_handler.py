@@ -825,7 +825,7 @@ class TelegramMessageHandler:
                 return "⚠️ Gemini API key not configured. Cannot analyze images."
             
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-3-flash-preview')
+            model = genai.GenerativeModel('gemini-1.5-flash')
             
             # Load image
             img = Image.open(file_path)
