@@ -417,9 +417,36 @@ Answer (in simple, clear {dialect}):"""
             # Save user message to database
             self.rag.save_user_message(conversation_id, message_text)
             
-            # Detect language
-            detected_language = self.detect_language(message_text)
-            dialect = get_dialect_from_language(detected_language)
+            # Use user's saved language preference (not detected from message)
+            # This ensures responses are in the user's chosen language even if they ask in English
+            user_language = user.get('language', 'en')
+            
+            # Map language code to full language name (in case it's stored as code)
+            lang_code_to_name = {
+                'en': 'English',
+                'ms': 'Bahasa Melayu',
+                'id': 'Bahasa Indonesia',
+                'vi': 'Vietnamese',
+                'th': 'Thai',
+                'zh': 'Chinese (Simplified)',
+                'ta': 'Tamil',
+                'tl': 'Filipino/Tagalog',
+                'my': 'Burmese',
+                'km': 'Khmer',
+                'lo': 'Lao'
+            }
+            
+            # Get full language name (handle both code and full name)
+            if user_language in lang_code_to_name:
+                language_name = lang_code_to_name[user_language]
+            else:
+                language_name = user_language  # Already full name
+            
+            # Get dialect for response generation
+            dialect = get_dialect_from_language(language_name)
+            
+            print(f"👤 User language preference: {language_name}")
+            print(f"🗣️ Response will be in: {dialect}")
             
             # Get relevant context using RAG
             context = self.rag.get_context_for_response(
