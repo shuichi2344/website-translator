@@ -132,15 +132,34 @@ class GPUAccelerator:
         return model
     
     def load_sentence_transformer(self, model_name: str, **kwargs):
-        """Load SentenceTransformer with GPU acceleration"""
+        """Load SentenceTransformer with GPU acceleration and better timeout handling"""
         try:
             from sentence_transformers import SentenceTransformer
+            import os
             
             print(f"📦 Loading {model_name}...")
             
+            # Set longer timeout for Hugging Face downloads (especially for slow connections)
+            # This helps prevent timeout errors when downloading models
+            os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '300'  # 5 minutes
+            
             # Load model with device specification
             device = self.get_device()
-            model = SentenceTransformer(model_name, device=device, **kwargs)
+            
+            try:
+                model = SentenceTransformer(model_name, device=device, **kwargs)
+            except Exception as download_error:
+                error_msg = str(download_error)
+                if 'timeout' in error_msg.lower() or 'timed out' in error_msg.lower():
+                    print(f"⚠️  Download timeout for {model_name}")
+                    print(f"   This usually happens with slow internet connections")
+                    print(f"   Retrying with extended timeout...")
+                    
+                    # Try one more time with even longer timeout
+                    os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '600'  # 10 minutes
+                    model = SentenceTransformer(model_name, device=device, **kwargs)
+                else:
+                    raise
             
             if self.cuda_available:
                 print(f"✅ {model_name} loaded on GPU")

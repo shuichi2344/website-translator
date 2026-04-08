@@ -4,6 +4,7 @@ Combines MySQL for message storage with ChromaDB for semantic search
 """
 from typing import List, Dict, Any, Optional
 import uuid
+import os
 from sentence_transformers import SentenceTransformer
 
 from engine.database.mysql_handler import MySQLHandler
@@ -39,11 +40,29 @@ class RAGIntegration:
             metadata={"description": "Chat message embeddings for RAG"}
         )
         
-        # Embedding model
+        # Embedding model with better error handling
         print("🔄 Loading embedding model with GPU acceleration...")
-        self.embedding_model = load_sentence_transformer('all-MiniLM-L6-v2')
-        self.batch_size = get_optimal_batch_size(default_cpu=8, default_gpu=32)
-        print(f"✅ Embedding model loaded (batch size: {self.batch_size})")
+        try:
+            self.embedding_model = load_sentence_transformer('all-MiniLM-L6-v2')
+            self.batch_size = get_optimal_batch_size(default_cpu=8, default_gpu=32)
+            print(f"✅ Embedding model loaded (batch size: {self.batch_size})")
+        except Exception as e:
+            error_msg = str(e)
+            if 'timeout' in error_msg.lower() or 'timed out' in error_msg.lower():
+                print(f"❌ Failed to download embedding model due to network timeout")
+                print(f"   This is likely due to slow internet connection")
+                print(f"   ")
+                print(f"   SOLUTIONS:")
+                print(f"   1. Check your internet connection and try again")
+                print(f"   2. Download the model manually:")
+                print(f"      - Visit: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2")
+                print(f"      - Click 'Files and versions' tab")
+                print(f"      - Download all files to: C:\\Users\\{os.getenv('USERNAME', 'YourUser')}\\.cache\\huggingface\\hub\\")
+                print(f"   3. Or use a VPN/different network and restart the bot")
+                print(f"   ")
+                raise Exception("Network timeout downloading embedding model. Please check your internet connection and try again.")
+            else:
+                raise
         
         # Mark as initialized
         RAGIntegration._initialized = True

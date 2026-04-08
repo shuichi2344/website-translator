@@ -265,6 +265,73 @@ class TelegramMessageHandler:
             print(f"❌ Error fetching government data: {e}")
             return {"chunks": [], "sources": []}
     
+    def _generate_simple_response(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
+        """
+        Generate a simple, child-friendly response for Telegram bot
+        Uses the same style as document summarizer (explain like to a 10-year-old)
+        """
+        try:
+            from google import genai
+            from google.genai import types
+            
+            api_key = os.getenv('GEMINI_API_KEY')
+            if not api_key:
+                # Fallback to original method
+                return generate_final_response(user_question, relevant_chunks, dialect)
+            
+            client = genai.Client(api_key=api_key)
+            
+            # Combine chunks into context
+            context = "\n---\n".join(relevant_chunks)
+            
+            prompt = f"""You are Bridge, the ASEAN government information assistant.
+Answer the user's question based ONLY on the provided government information.
+
+TARGET LANGUAGE: {dialect}
+USER QUESTION: {user_question}
+
+GOVERNMENT INFORMATION:
+{context}
+
+IMPORTANT - Write like you're explaining to a 10-year-old child:
+- YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
+- Use everyday words that kids understand (avoid technical jargon)
+- Keep sentences SHORT and SIMPLE (maximum 15-20 words per sentence)
+- Explain what things DO, not what they're called
+- If you must use a technical term, explain it in simple words right after
+- Focus on the MAIN IDEAS only - skip minor details
+- You can use bullet points (•) for lists
+- Do NOT include titles, headers, or bold text (**)
+- Do NOT write intro text like "Here are the bullet points"
+- LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
+- NO WEBSITES OR URLS: Do not mention any URLs
+- STOP when done - no polite closings like "hope this helps"
+
+Answer (in simple, clear {dialect}):"""
+            
+            response = client.models.generate_content(
+                model='gemini-3-flash-preview',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.4,
+                    top_p=0.95,
+                    max_output_tokens=2048,
+                )
+            )
+            
+            if response and response.text:
+                # Clean up any markdown formatting
+                clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
+                return clean_text
+            
+            # Fallback to original method
+            return generate_final_response(user_question, relevant_chunks, dialect)
+            
+        except Exception as e:
+            print(f"⚠️ Error in simple response generation: {e}")
+            # Fallback to original method
+            return generate_final_response(user_question, relevant_chunks, dialect)
+    
     async def handle_message(self, message_text: str, telegram_user, user_language: str = "English") -> str:
         """
         Main handler for incoming Telegram messages
@@ -388,8 +455,8 @@ class TelegramMessageHandler:
                         "Please try rephrasing or ask about common topics like passport renewal, visa applications, or government services."
                     ]
             
-            # Generate response using existing engine
-            response = generate_final_response(
+            # Generate response using simple, child-friendly style
+            response = self._generate_simple_response(
                 user_question=message_text,
                 relevant_chunks=relevant_chunks,
                 dialect=dialect
@@ -815,8 +882,9 @@ class TelegramMessageHandler:
             print(f"🔍 Analyzing image with Gemini Vision")
             print(f"❓ Question: {question}")
             
-            # Use Gemini Vision API
-            import google.generativeai as genai
+            # Use new Google GenAI library (same as document summarizer)
+            from google import genai
+            from google.genai import types
             from PIL import Image
             
             # Configure Gemini
@@ -824,20 +892,46 @@ class TelegramMessageHandler:
             if not api_key:
                 return "⚠️ Gemini API key not configured. Cannot analyze images."
             
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            client = genai.Client(api_key=api_key)
             
             # Load image
             img = Image.open(file_path)
             
-            # Generate response
-            response = model.generate_content([question, img])
+            # Use the same prompt style as document summarizer
+            prompt = f"""{question}
+
+IMPORTANT - Write like you're explaining to a 10-year-old child:
+- YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
+- Use everyday words that kids understand (avoid technical jargon)
+- Keep sentences SHORT and SIMPLE (maximum 15-20 words per bullet)
+- Explain what things DO, not what they're called
+- If you must use a technical term, explain it in simple words right after
+- Focus on the MAIN IDEAS only - skip minor details
+- Start each line with just a bullet symbol: •
+- Do NOT include titles, headers, or bold text (**) 
+- Do NOT write intro text like "Here are the bullet points"
+"""
+            
+            # Generate response using new API
+            response = client.models.generate_content(
+                model='gemini-3-flash-preview',
+                contents=[prompt, img],
+                config=types.GenerateContentConfig(
+                    temperature=0.4,
+                    top_p=0.95,
+                    max_output_tokens=2048,
+                )
+            )
             
             if response and response.text:
+                answer = response.text.strip()
+                # Clean up any markdown formatting
+                answer = answer.replace('**', '').replace('*', '').replace('__', '')
+                
                 return (
                     f"🖼️ <b>Image Analysis</b>\n\n"
                     f"❓ <i>{question}</i>\n\n"
-                    f"{response.text}\n\n"
+                    f"{answer}\n\n"
                     f"💡 <i>You can ask me more questions about this image!</i>"
                 )
             else:
