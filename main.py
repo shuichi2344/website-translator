@@ -59,22 +59,19 @@ def main(page: ft.Page) -> None:
     
     # Wait for loading to complete, then initialize app
     def check_loading_complete():
-        if loading_complete[0]:
-            # Remove splash screen
-            page.clean()
-            
-            # Initialize state and router
-            state = AppState()
-            apply_theme(page, state)
-            page.on_route_change = make_route_handler(state)
-            page.on_resize = lambda _: page.update()
-            
-            # Navigate to login
-            page.go("/login")
-        else:
-            # Check again in 100ms
+        while not loading_complete[0]:
             time.sleep(0.1)
-            check_loading_complete()
+        # Remove splash screen
+        page.clean()
+
+        # Initialize state and router
+        state = AppState()
+        apply_theme(page, state)
+        page.on_route_change = make_route_handler(state)
+        page.on_resize = lambda _: page.update()
+
+        # Navigate to login
+        page.go("/login")
     
     # Start checking in a separate thread
     threading.Thread(target=check_loading_complete, daemon=True).start()

@@ -8,6 +8,7 @@ import flet as ft
 from app.state import AppState
 from app.components.theme import ACCENT, ACCENT_DARK, accent_gradient, GRAD_START, GRAD_END, GRAD_START_DARK, GRAD_END_DARK
 from app.preloader import get_modules
+from engine.insert_doc.document_LLM import InclusiveCitizenAI
 
 # Import RAG integration for message storage (singleton pattern)
 _rag_instance = None
@@ -97,41 +98,37 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     _grad_colors = [GRAD_START_DARK, GRAD_END_DARK] if _dark else [GRAD_START, GRAD_END]
 
     # ------------------------------------------------------------------ #
-    #  Action card factory                                                 #
+    #  Circular selection button factory                                   #
     # ------------------------------------------------------------------ #
-    def action_card(
-        title: str,
-        icon,
-        mode: str,
-        on_click_fn,
-    ) -> ft.Container:
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Icon(icon, color=accent, size=32),
-                    ft.Text(
-                        title,
-                        size=state.font_sp(),
-                        weight=ft.FontWeight.BOLD,
-                        color=state.text_color(),
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=12,
-            ),
-            expand=True,
-            height=140,
-            padding=20,
-            border_radius=20,
-            border=ft.border.all(2, accent),
-            bgcolor=state.surface_color(),
+    def circle_btn(icon, label: str, mode: str, on_click_fn) -> ft.Column:
+        btn = ft.Container(
+            content=ft.Icon(icon, color=ft.colors.WHITE, size=28),
+            width=64,
+            height=64,
+            border_radius=32,
+            gradient=_grad,
+            alignment=ft.alignment.center,
             shadow=ft.BoxShadow(
-                blur_radius=12,
-                color=ft.colors.with_opacity(0.08, "#000000"),
+                blur_radius=10,
+                color=ft.colors.with_opacity(0.18, "#000000"),
             ),
             on_click=on_click_fn,
+            animate=ft.animation.Animation(150, ft.AnimationCurve.EASE_OUT),
+        )
+        return ft.Column(
+            [
+                btn,
+                ft.Text(
+                    label,
+                    size=state.font_sp() - 1,
+                    color=state.text_color(),
+                    text_align=ft.TextAlign.CENTER,
+                    weight=ft.FontWeight.W_500,
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=8,
         )
     # ------------------------------------------------------------------ #
     #  Greeting                                                            #
@@ -151,18 +148,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     #  a lambda that calls set_mode which is defined later — that's fine  #
     #  because the lambda is only *called* after the function exists)     #
     # ------------------------------------------------------------------ #
-    doc_card = action_card(
-        "Analyze Document / Image",
-        ft.icons.UPLOAD_FILE_OUTLINED,
-        "document",
-        lambda _: set_mode("document"),
-    )
-    web_card = action_card(
-        "Extract from Web Link",
-        ft.icons.LANGUAGE_OUTLINED,
-        "web",
-        lambda _: set_mode("web"),
-    )
+    web_btn  = circle_btn(ft.icons.LANGUAGE,           "Website",    "web",      lambda _: set_mode("web"))
+    media_btn = circle_btn(ft.icons.IMAGE,              "Image/File", "document", lambda _: set_mode("document"))
+    form_btn  = circle_btn(ft.icons.INSERT_DRIVE_FILE,  "Form",       "form",     lambda _: set_mode("form"))
 
     # ------------------------------------------------------------------ #
     #  Shared ASEAN language selector (used in both panels)              #
@@ -440,6 +428,281 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     )
 
     # ------------------------------------------------------------------ #
+    #  Form Panel — progressive disclosure layout                         #
+    # ------------------------------------------------------------------ #
+
+    import json as _json
+
+    # Load map.json once
+    try:
+        with open("map.json", "r") as _f:
+            _map_data = _json.load(_f)
+        _all_forms = _map_data.get("available_forms", [])
+        for _form in _all_forms:
+            if "country" not in _form:
+                _form["country"] = "Malaysia"
+    except Exception:
+        _all_forms = []
+
+    # Derive unique country list preserving order
+    _seen = []
+    for _form in _all_forms:
+        c = _form.get("country", "Malaysia")
+        if c not in _seen:
+            _seen.append(c)
+    _countries = _seen or ["Malaysia"]
+
+    def _form_card(form: dict) -> ft.Container:
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Icon(ft.icons.DESCRIPTION_OUTLINED, color=accent, size=28),
+                    ft.Text(
+                        form.get("display_name", "Form"),
+                        size=state.font_sp() - 1,
+                        color=state.text_color(),
+                        text_align=ft.TextAlign.CENTER,
+                        weight=ft.FontWeight.W_500,
+                        max_lines=2,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=8,
+            ),
+            border=ft.border.all(1.5, accent),
+            border_radius=14,
+            bgcolor=state.surface_color(),
+            padding=12,
+            ink=True,
+            on_click=lambda _, f=form: _on_form_selected(f),
+        )
+
+    def _add_card() -> ft.Container:
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Icon(ft.icons.ADD_CIRCLE_OUTLINE, color=accent, size=32),
+                    ft.Text(
+                        "Add / Scan",
+                        size=state.font_sp() - 1,
+                        color=state.text_color(),
+                        text_align=ft.TextAlign.CENTER,
+                        weight=ft.FontWeight.W_500,
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=8,
+            ),
+            border=ft.border.all(1.5, ft.colors.with_opacity(0.4, accent)),
+            border_radius=14,
+            bgcolor=ft.colors.with_opacity(0.04, accent),
+            padding=12,
+            ink=True,
+            on_click=lambda _: file_picker.pick_files(
+                allowed_extensions=["pdf", "docx", "png", "jpg", "jpeg"]
+            ),
+        )
+
+    # Empty state shown when no forms match the selected country
+    _empty_state = ft.Container(
+        content=ft.Column(
+            [
+                ft.Icon(ft.icons.SEARCH_OFF_ROUNDED, color=ft.colors.with_opacity(0.35, accent), size=48),
+                ft.Text(
+                    "No forms found for this region",
+                    size=state.font_sp(),
+                    color=ft.colors.with_opacity(0.5, state.text_color()),
+                    text_align=ft.TextAlign.CENTER,
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=10,
+        ),
+        alignment=ft.alignment.center,
+        height=100,
+        visible=False,
+    )
+
+    _form_grid = ft.GridView(
+        runs_count=2,
+        max_extent=180,
+        child_aspect_ratio=1.1,
+        spacing=10,
+        run_spacing=10,
+        expand=False,
+    )
+
+    # Wrapper animates height + opacity after country is chosen
+    _form_grid_wrapper = ft.Container(
+        content=ft.Column(
+            [_empty_state, _form_grid],
+            spacing=0,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+        ),
+        height=0,
+        opacity=0,
+        animate_opacity=ft.animation.Animation(300, ft.AnimationCurve.EASE_IN),
+        animate=ft.animation.Animation(300, ft.AnimationCurve.EASE_OUT),
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+    )
+
+    def _on_country_change(e):
+        country = _country_dropdown.value or ""
+        forms = [f for f in _all_forms if f.get("country", "Malaysia") == country]
+        _form_grid.controls.clear()
+
+        if forms:
+            for form in forms:
+                _form_grid.controls.append(_form_card(form))
+            _form_grid.controls.append(_add_card())
+            _empty_state.visible = False
+            grid_height = max(200, (((len(forms) + 1) // 2) + 1) * 130)
+        else:
+            _empty_state.visible = True
+            grid_height = 140
+
+        _form_grid_wrapper.height = grid_height
+        _form_grid_wrapper.opacity = 1
+        # Expand panel to fit content
+        panel_container.height = 120 + grid_height
+        page.update()
+
+    # Active form-filling session state
+    _form_ai: list = [None]              # InclusiveCitizenAI instance
+    _form_name: list = [None]            # display name of active form
+    _form_filling: list = [False]        # True while a form session is running
+    _form_confirming: list = [False]     # True while awaiting yes/no confirmation
+    _form_map_entry: list = [None]       # map.json entry for the active form
+
+    def _run_form_session(ai: InclusiveCitizenAI, display_name: str):
+        """
+        Runs the full form Q&A loop in a background thread.
+        Handles regular questions, section confirmations, and auto-skips.
+        """
+        try:
+            while True:
+                result = ai.generate_question()
+
+                # ── Form complete ────────────────────────────────────────
+                if result is None:
+                    tts_summary = ai.get_tts_summary()
+
+                    def _done():
+                        _form_filling[0] = False
+                        _form_confirming[0] = True  # wait for yes/no
+                        _add_bubble("✅ Here's a summary of your information:", "status")
+                        _add_bubble(tts_summary, "bot")
+                        page.update()
+                    _ui_call(_done)
+                    return
+
+                # ── Optional section confirmation ────────────────────────
+                if result.startswith("SECTION_CONFIRM:"):
+                    section_name = result.split(":", 1)[1]
+                    confirm_q = f"Do you have information for '{section_name}' to fill in? (yes / no)"
+                    _ui_call(lambda q=confirm_q: (_add_bubble(q, "bot"), page.update()))
+
+                    answer = ai.wait_for_answer(timeout=300.0)
+                    if answer is None:
+                        _ui_call(lambda: (_add_bubble("⏱️ Session timed out.", "status"), page.update()))
+                        break
+                    ai.confirm_section(answer)
+                    continue  # loop back — generate_question will skip or proceed
+
+                # ── Regular question ─────────────────────────────────────
+                _ui_call(lambda q=result: (_add_bubble(q, "bot"), page.update()))
+
+                answer = ai.wait_for_answer(timeout=300.0)
+                if answer is None:
+                    _ui_call(lambda: (_add_bubble("⏱️ Session timed out.", "status"), page.update()))
+                    break
+
+                extracted = ai.extract_and_save(answer)
+                if extracted == "RETRY":
+                    _ui_call(lambda: (
+                        _add_bubble("I didn't catch that — could you try again?", "bot"),
+                        page.update()
+                    ))
+                    # Index not advanced — loop will re-ask same question
+
+        except Exception as exc:
+            def _err():
+                _form_filling[0] = False
+                _form_ai[0] = None
+                _add_bubble(f"⚠️ Form error: {exc}", "status")
+                page.update()
+            _ui_call(_err)
+        finally:
+            _form_filling[0] = False
+            # Only clear _form_ai if we are NOT waiting for confirmation
+            # (confirmation handler needs ai.responses to write the PDF)
+            if not _form_confirming[0]:
+                _form_ai[0] = None
+
+    def _on_form_selected(form: dict):
+        schema_path = form.get("schema_file", "")
+        display_name = form.get("display_name", "Form")
+
+        set_mode(None)
+
+        try:
+            ai = InclusiveCitizenAI(schema_path, user_language=state.language or "English")
+            _form_ai[0] = ai
+            _form_name[0] = display_name
+            _form_map_entry[0] = form
+            _form_filling[0] = True
+            _add_bubble(f"Starting form: {display_name}", "user")
+            _add_bubble(
+                f"I'll guide you through the {display_name}. "
+                "Answer each question via the chat box or mic button.",
+                "bot"
+            )
+            page.update()
+            # Run the blocking session loop in a background thread
+            _run_in_thread(lambda: _run_form_session(ai, display_name))
+        except Exception as exc:
+            _add_bubble(f"⚠️ Could not load form: {exc}", "status")
+            page.update()
+            _add_bubble(f"⚠️ Could not load form: {exc}", "status")
+            page.update()
+
+    _country_dropdown = ft.Dropdown(
+        label="Select Country",
+        hint_text="Choose a country",
+        options=[ft.dropdown.Option(c) for c in _countries],
+        border_color=accent,
+        border_radius=8,
+        border_width=2,
+        bgcolor=state.surface_color(),
+        color=state.text_color(),
+        label_style=ft.TextStyle(color=accent, size=state.font_sp() - 1),
+        text_style=ft.TextStyle(color=state.text_color(), size=state.font_sp()),
+        on_change=_on_country_change,
+    )
+
+    # Initially: dropdown centered, grid hidden
+    form_panel = ft.Container(
+        content=ft.Column(
+            [
+                ft.Container(expand=True),  # top spacer — pushes dropdown to center
+                _country_dropdown,
+                _form_grid_wrapper,
+                ft.Container(expand=True),  # bottom spacer
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            spacing=10,
+            expand=True,
+        ),
+        visible=False,
+        padding=ft.padding.symmetric(horizontal=16, vertical=8),
+        expand=True,
+    )
+
+    # ------------------------------------------------------------------ #
     #  Action buttons (per mode)                                          #
     # ------------------------------------------------------------------ #
 
@@ -684,6 +947,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         [
             document_panel,
             web_panel,
+            form_panel,
             ft.Container(
                 content=ft.Row(
                     [doc_summarise_btn, doc_ask_btn, web_summarise_btn, web_ask_btn],
@@ -737,6 +1001,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         active_mode[0] = mode
         document_panel.visible = mode == "document"
         web_panel.visible = mode == "web"
+        form_panel.visible = mode == "form"
         if mode is None:
             doc_summarise_btn.visible = False
             doc_ask_btn.visible       = False
@@ -753,21 +1018,24 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         # Show/hide panel using height animation (no offset — avoids overlay issues)
         if mode is not None:
             panel_container.visible = True
-            panel_container.height = _PANEL_OPEN_HEIGHT
+            panel_container.height = 120 if mode == "form" else _PANEL_OPEN_HEIGHT
         else:
+            # Reset form grid when closing
+            _form_grid_wrapper.opacity = 0
+            _form_grid_wrapper.height = 0
+            _empty_state.visible = False
+            _country_dropdown.value = None
             panel_container.height = 0
             def _hide():
                 import time; time.sleep(0.26)
                 panel_container.visible = False
                 page.update()
             threading.Thread(target=_hide, daemon=True).start()
-        # Update card active styling
-        doc_card.bgcolor = (
-            ft.colors.with_opacity(0.12, accent) if mode == "document" else state.surface_color()
-        )
-        web_card.bgcolor = (
-            ft.colors.with_opacity(0.12, accent) if mode == "web" else state.surface_color()
-        )
+        # Update circle button active styling
+        for btn_col, btn_mode in [(web_btn, "web"), (media_btn, "document"), (form_btn, "form")]:
+            circle = btn_col.controls[0]
+            circle.gradient = None if mode == btn_mode else _grad
+            circle.bgcolor = ft.colors.with_opacity(0.25, accent) if mode == btn_mode else None
         page.update()
 
     # ------------------------------------------------------------------ #
@@ -1059,10 +1327,56 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         msg = (chat_field.value or "").strip()
         if not msg:
             return
-        
+
+        # Form-filling session takes priority — just unblock the waiting session loop
+        if _form_filling[0] and _form_ai[0] is not None:
+            _add_bubble(msg, "user")
+            chat_field.value = ""
+            page.update()
+            _form_ai[0].submit_answer(msg)
+            return
+
+        # Awaiting confirmation after form summary
+        if _form_confirming[0]:
+            _add_bubble(msg, "user")
+            chat_field.value = ""
+            page.update()
+            _yes = any(w in msg.lower() for w in ("yes", "ya", "correct", "ok", "yep", "betul", "confirm"))
+            if _yes:
+                ai = _form_ai[0]        # capture before clearing
+                entry = _form_map_entry[0]
+                _form_confirming[0] = False
+                _form_ai[0] = None
+
+                def _write():
+                    try:
+                        from engine.insert_doc.write_doc import fill_pdf
+                        schema_path = entry.get("schema_file", "")
+                        pdf_path    = entry.get("pdf_file", "")
+                        if not schema_path or not pdf_path:
+                            _ui_call(lambda: (_add_bubble("⚠️ No PDF template configured for this form.", "status"), page.update()))
+                            return
+                        out = fill_pdf(ai.responses, schema_path, pdf_path)
+                        def _ok():
+                            _add_bubble(f"✅ PDF saved successfully:\n{out}", "status")
+                            page.update()
+                        _ui_call(_ok)
+                    except Exception as exc:
+                        def _err():
+                            _add_bubble(f"⚠️ Failed to write PDF: {exc}", "status")
+                            page.update()
+                        _ui_call(_err)
+                _run_in_thread(_write)
+            else:
+                _form_confirming[0] = False
+                _form_ai[0] = None
+                _add_bubble("No problem — the form has been discarded. You can start again anytime.", "bot")
+                page.update()
+            return
+
         # Check if we're in document or web mode
         current_mode = active_mode[0]
-        
+
         if current_mode == "document" and selected_file[0]:
             # Document Q&A mode
             on_doc_ask(None)
@@ -1383,18 +1697,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     page.call_from_thread(update_ui)
                 else:
                     update_ui()
-
-                # Run TTS after UI has been updated (only speak the answer, not sources)
-                if response:
-                    import asyncio as _asyncio
-                    loop = _asyncio.new_event_loop()
-                    try:
-                        # Extract just the answer text for TTS
-                        answer_text = response.get("answer", "") if isinstance(response, dict) else str(response)
-                        if answer_text:
-                            loop.run_until_complete(speak_answer(answer_text, "MY"))
-                    finally:
-                        loop.close()
+                # TTS is manual — user clicks 'Listen' on the bot bubble
 
             # Use a plain daemon thread and marshal UI updates via `call_from_thread`.
             threading.Thread(target=process, daemon=True).start()
@@ -1576,9 +1879,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 greeting,
                 ft.Container(height=16),
                 ft.Row(
-                    [doc_card, web_card],
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    spacing=16,
+                    [web_btn, media_btn, form_btn],
+                    alignment=ft.MainAxisAlignment.SPACE_EVENLY,
                 ),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
