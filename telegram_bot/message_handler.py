@@ -269,6 +269,7 @@ class TelegramMessageHandler:
         """
         Generate a simple, child-friendly response for Telegram bot
         Uses the same style as document summarizer (explain like to a 10-year-old)
+        Falls back to Ollama llama3.2 if Gemini fails
         """
         try:
             from google import genai
@@ -276,8 +277,8 @@ class TelegramMessageHandler:
             
             api_key = os.getenv('GEMINI_API_KEY')
             if not api_key:
-                # Fallback to original method
-                return generate_final_response(user_question, relevant_chunks, dialect)
+                print("⚠️ Gemini API key not configured, trying Ollama...")
+                return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
             
             client = genai.Client(api_key=api_key)
             
@@ -305,6 +306,7 @@ IMPORTANT - Write like you're explaining to a 10-year-old child:
 - Do NOT write intro text like "Here are the bullet points"
 - LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
 - NO WEBSITES OR URLS: Do not mention any URLs
+- Keep response under 150 words for easy reading
 - STOP when done - no polite closings like "hope this helps"
 
 Answer (in simple, clear {dialect}):"""
@@ -324,12 +326,82 @@ Answer (in simple, clear {dialect}):"""
                 clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
                 return clean_text
             
-            # Fallback to original method
+            # If no response, try Ollama
+            print("⚠️ Gemini returned empty response, trying Ollama...")
+            return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
+            
+        except Exception as e:
+            print(f"⚠️ Gemini error: {e}")
+            print("   Falling back to Ollama (llama3.2)...")
+            return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
+    
+    def _generate_response_with_ollama(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
+        """
+        Fallback response generation using Ollama llama3.2
+        Same simple style as Gemini
+        """
+        try:
+            import requests
+            
+            print(f"🦙 Using Ollama (llama3.2) for response generation...")
+            
+            # Combine chunks into context
+            context = "\n---\n".join(relevant_chunks)
+            
+            prompt = f"""You are Bridge, the ASEAN government information assistant.
+Answer the user's question based ONLY on the provided government information.
+
+TARGET LANGUAGE: {dialect}
+USER QUESTION: {user_question}
+
+GOVERNMENT INFORMATION:
+{context}
+
+IMPORTANT - Write like you're explaining to a 10-year-old child:
+- YES/NO FIRST: If the user is asking a closed-ended question, start with "Yes" or "No" in the target language.
+- Use everyday words that kids understand (avoid technical jargon)
+- Keep sentences SHORT and SIMPLE (maximum 15-20 words per sentence)
+- Explain what things DO, not what they're called
+- If you must use a technical term, explain it in simple words right after
+- Focus on the MAIN IDEAS only - skip minor details
+- You can use bullet points (•) for lists
+- Do NOT include titles, headers, or bold text
+- LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
+- NO WEBSITES OR URLS: Do not mention any URLs
+- Keep response under 150 words
+- STOP when done - no polite closings
+
+Answer (in simple, clear {dialect}):"""
+            
+            response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "llama3.2",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.4,
+                        "top_p": 0.95,
+                    }
+                },
+                timeout=120
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                answer = result.get('response', '').strip()
+                if answer:
+                    # Clean up any markdown formatting
+                    answer = answer.replace('**', '').replace('*', '').replace('__', '').replace('#', '')
+                    print(f"✅ Ollama response generated successfully")
+                    return answer
+            
+            print("⚠️ Ollama failed, using original method...")
             return generate_final_response(user_question, relevant_chunks, dialect)
             
         except Exception as e:
-            print(f"⚠️ Error in simple response generation: {e}")
-            # Fallback to original method
+            print(f"⚠️ Ollama error: {e}")
+            print("   Using original response generation method...")
             return generate_final_response(user_question, relevant_chunks, dialect)
     
     async def handle_message(self, message_text: str, telegram_user, user_language: str = "English") -> str:
