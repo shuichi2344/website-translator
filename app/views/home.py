@@ -577,6 +577,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     _form_filling: list = [False]        # True while a form session is running
     _form_confirming: list = [False]     # True while awaiting yes/no confirmation
     _form_map_entry: list = [None]       # map.json entry for the active form
+    _form_sig_path: list = [None]        # temp PNG path for signature
 
     def _run_form_session(ai: InclusiveCitizenAI, display_name: str):
         """
@@ -1343,30 +1344,11 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             page.update()
             _yes = any(w in msg.lower() for w in ("yes", "ya", "correct", "ok", "yep", "betul", "confirm"))
             if _yes:
-                ai = _form_ai[0]        # capture before clearing
-                entry = _form_map_entry[0]
                 _form_confirming[0] = False
-                _form_ai[0] = None
-
-                def _write():
-                    try:
-                        from engine.insert_doc.write_doc import fill_pdf
-                        schema_path = entry.get("schema_file", "")
-                        pdf_path    = entry.get("pdf_file", "")
-                        if not schema_path or not pdf_path:
-                            _ui_call(lambda: (_add_bubble("⚠️ No PDF template configured for this form.", "status"), page.update()))
-                            return
-                        out = fill_pdf(ai.responses, schema_path, pdf_path)
-                        def _ok():
-                            _add_bubble(f"✅ PDF saved successfully:\n{out}", "status")
-                            page.update()
-                        _ui_call(_ok)
-                    except Exception as exc:
-                        def _err():
-                            _add_bubble(f"⚠️ Failed to write PDF: {exc}", "status")
-                            page.update()
-                        _ui_call(_err)
-                _run_in_thread(_write)
+                _sig_points.clear()
+                _form_sig_path[0] = None
+                sig_modal.open = True
+                page.update()
             else:
                 _form_confirming[0] = False
                 _form_ai[0] = None
@@ -1941,7 +1923,171 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     #  Wire FilePicker into page.overlay                                  #
     # ------------------------------------------------------------------ #
 
+    # ------------------------------------------------------------------ #
+    #  Signature modal                                                     #
+    # ------------------------------------------------------------------ #
+
+    _sig_points: list = []       # list of (x, y) or None (pen-up)
+    _sig_drawing: list = [False]
+
+    sig_canvas = ft.GestureDetector(
+        content=ft.Container(
+            width=400,
+            height=200,
+            bgcolor=ft.colors.WHITE,
+            border=ft.border.all(1, accent),
+            border_radius=8,
+        ),
+    )
+
+    sig_canvas_stack = ft.Stack(
+        [sig_canvas],
+        width=400,
+        height=200,
+    )
+
+    def _sig_on_pan_start(e: ft.DragStartEvent):
+        _sig_points.append((e.local_x, e.local_y))
+        _sig_drawing[0] = True
+
+    def _sig_on_pan_update(e: ft.DragUpdateEvent):
+        if _sig_drawing[0]:
+            _sig_points.append((e.local_x, e.local_y))
+            _redraw_sig()
+
+    def _sig_on_pan_end(e: ft.DragEndEvent):
+        _sig_points.append(None)  # pen-up marker
+        _sig_drawing[0] = False
+
+    sig_canvas.on_pan_start  = _sig_on_pan_start
+    sig_canvas.on_pan_update = _sig_on_pan_update
+    sig_canvas.on_pan_end    = _sig_on_pan_end
+
+    def _redraw_sig():
+        shapes = []
+        prev = None
+        for pt in _sig_points:
+            if pt is None:
+                prev = None
+                continue
+            if prev is not None:
+                shapes.append(
+                    ft.canvas.Line(
+                        prev[0], prev[1], pt[0], pt[1],
+                        paint=ft.Paint(color=ft.colors.BLACK, stroke_width=2),
+                    )
+                )
+            prev = pt
+        # Replace canvas content with drawn lines
+        sig_canvas.content = ft.canvas.Canvas(
+            shapes=shapes,
+            width=400,
+            height=200,
+        )
+        page.update()
+
+    def _sig_clear(_):
+        _sig_points.clear()
+        sig_canvas.content = ft.Container(
+            width=400, height=200,
+            bgcolor=ft.colors.WHITE,
+            border=ft.border.all(1, accent),
+            border_radius=8,
+        )
+        page.update()
+
+    def _sig_save(_):
+        import tempfile, os
+        try:
+            from PIL import Image, ImageDraw
+            img = Image.new("RGBA", (400, 200), (255, 255, 255, 0))  # transparent bg
+            draw = ImageDraw.Draw(img)
+            prev = None
+            for pt in _sig_points:
+                if pt is None:
+                    prev = None
+                    continue
+                if prev is not None:
+                    draw.line([prev, pt], fill=(0, 0, 0, 255), width=2)
+                prev = pt
+            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            img.save(tmp.name)
+            _form_sig_path[0] = tmp.name
+            print(f"[signature] Saved → {tmp.name}")
+        except Exception as e:
+            print(f"[signature] Error saving: {e}")
+            _form_sig_path[0] = None
+
+        sig_modal.open = False
+        page.update()
+        _do_write_pdf()
+
+    sig_modal = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Please sign below", weight=ft.FontWeight.BOLD),
+        content=ft.Column(
+            [
+                ft.Text("Draw your signature in the box:", size=12),
+                ft.Container(
+                    content=sig_canvas,
+                    width=400,
+                    height=200,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                ),
+            ],
+            tight=True,
+            spacing=8,
+        ),
+        actions=[
+            ft.TextButton("Clear", on_click=_sig_clear),
+            ft.TextButton("Skip", on_click=lambda _: (
+                setattr(sig_modal, 'open', False),
+                page.update(),
+                _do_write_pdf(),
+            )),
+            ft.ElevatedButton(
+                "Save & Continue",
+                on_click=_sig_save,
+                style=ft.ButtonStyle(bgcolor=accent, color=ft.colors.WHITE),
+            ),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+
+    def _do_write_pdf():
+        ai    = _form_ai[0]
+        entry = _form_map_entry[0]
+        sig   = _form_sig_path[0]
+        _form_ai[0] = None
+        print(f"[_do_write_pdf] ai={ai} sig={sig} entry={entry}")
+
+        def _write():
+            try:
+                from engine.insert_doc.write_doc import fill_pdf
+                schema_path = entry.get("schema_file", "")
+                pdf_path    = entry.get("pdf_file", "")
+                if not schema_path or not pdf_path:
+                    _ui_call(lambda: (_add_bubble("⚠️ No PDF template configured.", "status"), page.update()))
+                    return
+                out = fill_pdf(
+                    ai.responses, schema_path, pdf_path,
+                    input_bboxes=ai._input_bboxes,
+                    signature_path=sig,
+                )
+                def _ok():
+                    _add_bubble(f"✅ PDF saved:\n{out}", "status")
+                    page.update()
+                _ui_call(_ok)
+            except Exception as exc:
+                def _err():
+                    _add_bubble(f"⚠️ Failed to write PDF: {exc}", "status")
+                    page.update()
+                _ui_call(_err)
+
+        _run_in_thread(_write)
+
     page.overlay.append(file_picker)
+    page.overlay.append(sig_modal)
     page.update()
 
     # ------------------------------------------------------------------ #

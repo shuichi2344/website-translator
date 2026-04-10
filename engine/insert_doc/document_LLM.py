@@ -55,7 +55,9 @@ class InclusiveCitizenAI:
         self.fields = self._merge_duplicate_fields(self.fields)
 
         self.responses: dict = {}
+        self._input_bboxes: dict = {}  # key -> input_bbox for write_doc
         self.current_field_index: int = 0
+        self._current_merged_slot: int = 0  # which line within a merged field
         self.user_language = user_language
         self.model_id = "llama3.2"
 
@@ -78,9 +80,12 @@ class InclusiveCitizenAI:
             return fields
 
         def _base_label(label: str) -> str:
-            """Strip trailing field codes like A5, B1, A3 for grouping."""
+            """Strip trailing field codes like A5, B1 and line suffixes like 'line 1' for grouping."""
             import re
-            return re.sub(r'\s+[A-Z]\d+\s*$', '', label.strip()).strip().upper()
+            s = label.strip()
+            s = re.sub(r'\s+line\s+\d+\s*$', '', s, flags=re.IGNORECASE)
+            s = re.sub(r'\s+[A-Z]\d+\s*$', '', s)
+            return s.strip().upper()
 
         merged = []
         i = 0
@@ -111,6 +116,13 @@ class InclusiveCitizenAI:
                     break
 
             field["_merged_indices"] = indices
+            # Collect all input_bboxes from merged fields so _save_value
+            # doesn't need to re-index into the post-merge list.
+            field["_merged_bboxes"] = [
+                fields[k]["input_bbox"]
+                for k in indices
+                if fields[k].get("input_bbox")
+            ]
             merged.append(field)
             i = j
 
@@ -173,7 +185,9 @@ class InclusiveCitizenAI:
                     prefix = ctx + " "
                     break
 
-            question = self._ask_llm(label, prefix)
+            self._current_merged_slot = 0
+            num_bboxes = len(field.get("_merged_bboxes") or [])
+            question = self._ask_llm(label, prefix, total_lines=num_bboxes)
             return question
 
         return None  # all fields processed
@@ -190,22 +204,26 @@ class InclusiveCitizenAI:
         return yes
 
     # ------------------------------------------------------------------
-    def _ask_llm(self, label: str, prefix: str = "") -> str:
+    def _ask_llm(self, label: str, prefix: str = "", line: int = 0, total_lines: int = 0) -> str:
+        line_hint = ""
+        if total_lines > 1:
+            line_hint = f" (up to {total_lines} lines, additional lines optional)"
         prompt = (
             f"You are a friendly assistant helping fill a government form.\n"
-            f"Field label: \"{prefix}{label}\"\n"
+            f"Field label: \"{prefix}{label}{line_hint}\"\n"
             f"Language: {self.user_language}\n\n"
             f"Write a short, direct question asking the user for this field's value.\n"
             f"Rules:\n"
             f"- Remove technical codes like A1, B2, or parenthetical instructions.\n"
+            f"- Remove line suffixes like 'line 1', 'line 2', 'line 3'.\n"
+            f"- If the hint says 'additional lines optional', mention that in the question naturally.\n"
             f"- Do NOT ask yes/no questions. Ask for the actual value.\n"
-            f"- Keep it under 15 words.\n"
+            f"- Keep it under 20 words.\n"
             f"- Return ONLY the question, no quotes, no explanation.\n\n"
             f"Examples:\n"
             f"Label: Nama (seperti di MyKad) A1 -> What is your full name?\n"
             f"Label: Nombor MyKad -> What is your IC number?\n"
-            f"Label: Tarikh -> What is the date? (DD/MM/YYYY)\n"
-            f"Label: Your spouse's Nama -> What is your spouse's full name?\n"
+            f"Label: Alamat (up to 3 lines, additional lines optional) -> What is your mailing address? (you may provide up to 3 lines)\n"
         )
         response = ollama.chat(
             model=self.model_id,
@@ -246,6 +264,8 @@ class InclusiveCitizenAI:
         if user_text.strip().lower() in _na_phrases:
             value = "-"
             self._save_value(field, label, value)
+            # Skip all remaining slots for this field
+            self._current_merged_slot = 0
             self.current_field_index += 1
             return value
 
@@ -275,20 +295,18 @@ class InclusiveCitizenAI:
             return "RETRY"
 
         self._save_value(field, label, value)
+        self._current_merged_slot = 0
         self.current_field_index += 1
         return value
 
     def _save_value(self, field: dict, label: str, value: str):
-        """Store value across merged field slots."""
-        merged = field.get("_merged_indices", [self.current_field_index])
-        if len(merged) > 1:
-            lines = [l.strip() for l in value.split(",")]
-            for idx in range(len(merged)):
-                line_val = lines[idx] if idx < len(lines) else value
-                key = f"{label} (line {idx + 1})"
-                self.responses[key] = line_val
-        else:
-            self.responses[label] = value
+        """Store value and collect all merged input_bboxes for write_doc wrapping."""
+        self.responses[label] = value
+        # Use pre-collected bboxes from _merge_duplicate_fields (avoids stale index lookups)
+        bboxes = field.get("_merged_bboxes") or []
+        if not bboxes and field.get("input_bbox"):
+            bboxes = [field["input_bbox"]]
+        self._input_bboxes[label] = bboxes if len(bboxes) > 1 else (bboxes[0] if bboxes else None)
 
     # ------------------------------------------------------------------
     def get_final_json(self) -> str:
