@@ -8,6 +8,7 @@ flask
 flask-cors
 werkzeug
 python-dotenv
+google-generativeai
 
 # Document processing
 docling

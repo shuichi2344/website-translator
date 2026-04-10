@@ -40,6 +40,31 @@ def _get_preloaded_modules():
         modules.get('transcribe_audio')
     )
 
+def _fetch_user_country(state: AppState) -> None:
+    """Fetch the user's country from MySQL and update state. Silent on failure."""
+    if not state.user_id:
+        return
+    try:
+        from engine.database.auth_handler import AuthHandler
+        auth = AuthHandler()
+        profile = auth.get_user_profile(state.user_id)
+        auth.close()
+        if profile and profile.get("country"):
+            state.country = profile["country"]
+            print(f"[home] Country refreshed from DB: {state.country}")
+    except Exception as e:
+        print(f"[home] Could not fetch country from DB: {e}")
+
+
+# Country name → ISO-3166 alpha-2 used by VOICE_MATRIX
+_COUNTRY_CODE_MAP = {
+    "Malaysia": "MY", "Indonesia": "ID", "Thailand": "TH",
+    "Vietnam": "VN", "Philippines": "PH", "Myanmar": "MM",
+    "Cambodia": "KH", "Laos": "LA", "Singapore": "SG",
+    "Brunei": "BN", "Timor-Leste": "TL",
+}
+
+
 def is_valid_url(s: str) -> bool:
     """Return True iff *s* starts with 'http://' or 'https://'."""
     return s.startswith("http://") or s.startswith("https://")
@@ -72,6 +97,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             print(f"✅ Created conversation: {state.conversation_id}")
         else:
             print(f"✅ Using existing conversation: {state.conversation_id}")
+
+    # Refresh country from MySQL in background (non-blocking)
+    threading.Thread(target=_fetch_user_country, args=(state,), daemon=True).start()
 
     session = state.session
     stream = state.stream
@@ -603,8 +631,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
                 # ── Optional section confirmation ────────────────────────
                 if result.startswith("SECTION_CONFIRM:"):
-                    section_name = result.split(":", 1)[1]
-                    confirm_q = f"Do you have information for '{section_name}' to fill in? (yes / no)"
+                    confirm_q = result.split(":", 1)[1]
                     _ui_call(lambda q=confirm_q: (_add_bubble(q, "bot"), page.update()))
 
                     answer = ai.wait_for_answer(timeout=300.0)
@@ -1170,28 +1197,31 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         audio_file[0] = temp_file.name
                         temp_file.close()
                         
-                        # Generate audio using edge-tts with language-appropriate voice
+                        # Generate audio using speak_answer with country-aware voice
                         async def generate_audio():
-                            # Get voices for user's selected language
-                            from engine.speech.language_voice_mapping import get_voices_for_language
-                            voices = get_voices_for_language(state.language)
-                            
-                            print(f"🔊 TTS for language: {state.language}")
-                            print(f"🎤 Trying voices: {voices}")
-                            
+                            from engine.speech.text_to_speech import speak_answer as _speak_answer
+                            country_code = _COUNTRY_CODE_MAP.get(state.country, "DEFAULT")
+                            print(f"🔊 TTS country: {state.country} -> code: {country_code}")
+                            # speak_answer writes to pygame directly; we capture to file instead
+                            import edge_tts
+                            from engine.speech.text_to_speech import VOICE_MATRIX, get_lang
+                            lang = get_lang(text)
+                            country_voices = VOICE_MATRIX.get(country_code, VOICE_MATRIX["DEFAULT"])
+                            if isinstance(country_voices, str):
+                                voice = country_voices
+                            else:
+                                voice = country_voices.get(lang, country_voices.get("en", VOICE_MATRIX["DEFAULT"]))
+                            print(f"🎤 Voice selected: {voice} (lang={lang})")
                             last_error = None
-                            for voice in voices:
+                            for v in [voice, "en-US-AriaNeural"]:
                                 try:
-                                    communicate = edge_tts.Communicate(text, voice)
+                                    communicate = edge_tts.Communicate(text, v)
                                     await communicate.save(audio_file[0])
-                                    print(f"✅ TTS generated with voice: {voice}")
-                                    return  # Success
+                                    print(f"✅ TTS generated with voice: {v}")
+                                    return
                                 except Exception as e:
                                     last_error = e
-                                    print(f"⚠️ Voice {voice} failed: {e}")
-                                    continue
-                            
-                            # If all voices failed, raise the last error
+                                    print(f"⚠️ Voice {v} failed: {e}")
                             if last_error:
                                 raise last_error
                         
@@ -1512,6 +1542,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 callback=lambda indata, *_: _search_audio_chunks.append(indata.copy()),
             )
             _search_sd_stream[0].start()
+        elif _form_filling[0]:
+            # Form-filling mode: capture raw audio for Whisper transcription
+            import sounddevice as sd
+            _search_audio_chunks.clear()
+            _search_sd_stream[0] = sd.InputStream(
+                samplerate=16000, channels=1, dtype="float32",
+                callback=lambda indata, *_: _search_audio_chunks.append(indata.copy()),
+            )
+            _search_sd_stream[0].start()
         else:
             _pulse(expand=False)
             stream.start()
@@ -1608,6 +1647,70 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     _ui_call(_err)
 
             threading.Thread(target=_transcribe_work, daemon=True).start()
+
+        elif _form_filling[0]:
+            # Stop the form-mode stream first
+            sd_stream = _search_sd_stream[0]
+            if sd_stream:
+                sd_stream.stop()
+                sd_stream.close()
+                _search_sd_stream[0] = None
+
+            # ── Form-filling mode: transcribe and submit as form answer ──
+            def _form_transcribe():
+                import numpy as np
+                import soundfile as sf
+                import tempfile, os
+
+                def _set_processing():
+                    is_processing[0] = True
+                    chat_field.hint_text = "Transcribing..."
+                    mic_icon.name = ft.icons.STOP_ROUNDED
+                    mic_circle.gradient = None
+                    mic_circle.bgcolor = ft.colors.GREY_400
+                    page.update()
+                _ui_call(_set_processing)
+
+                try:
+                    # Capture via sounddevice (same path as document/web mode)
+                    text = ""
+                    if _search_audio_chunks:
+                        audio_np = np.concatenate(_search_audio_chunks, axis=0).flatten()
+                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                            tmp_path = f.name
+                        sf.write(tmp_path, audio_np, 16000)
+                        _, _, _, _, transcribe_audio = _get_preloaded_modules()
+                        text = transcribe_audio(tmp_path, normalize_to_question=False) if transcribe_audio else ""
+                        os.remove(tmp_path)
+
+                    def _done(t=text):
+                        is_processing[0] = False
+                        chat_field.hint_text = "Ask a question..."
+                        mic_icon.name = ft.icons.MIC_ROUNDED
+                        mic_circle.gradient = _grad
+                        mic_circle.bgcolor = None
+                        if t:
+                            _add_bubble(t, "user")
+                            chat_field.value = ""
+                        page.update()
+                        if t:
+                            ai = _form_ai[0]
+                            if ai:
+                                ai.submit_answer(t)
+                    _ui_call(_done)
+
+                except Exception as exc:
+                    def _err():
+                        is_processing[0] = False
+                        chat_field.hint_text = "Ask a question..."
+                        mic_icon.name = ft.icons.MIC_ROUNDED
+                        mic_circle.gradient = _grad
+                        mic_circle.bgcolor = None
+                        _add_bubble(f"⚠️ Transcription error: {exc}", "status")
+                        page.update()
+                    _ui_call(_err)
+
+            threading.Thread(target=_form_transcribe, daemon=True).start()
 
         else:
             stream.stop()
@@ -2019,6 +2122,13 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             _form_sig_path[0] = None
 
         sig_modal.open = False
+        _sig_points.clear()
+        sig_canvas.content = ft.Container(
+            width=400, height=200,
+            bgcolor=ft.colors.WHITE,
+            border=ft.border.all(1, accent),
+            border_radius=8,
+        )
         page.update()
         _do_write_pdf()
 

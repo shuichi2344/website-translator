@@ -69,18 +69,38 @@ def get_lang(text):
 async def speak_answer(text: str, country_code: str = "DEFAULT"):
     """
     Plays the AI's answer using a voice tailored to the user's country.
+    Prepends a brief country-aware greeting when a known country is provided.
     """
     lang = "en"
 
     try:
-        # 2. Attempt detection
         detected = get_lang(text)
         if detected:
             lang = detected
     except Exception as e:
         print(f"Detection Error: {e}. Falling back to 'en'.")
 
-    print(f"Detected language: {lang}")
+    print(f"Detected language: {lang}, country: {country_code}")
+
+    # Country-aware greeting prefix
+    _GREETINGS = {
+        "MY": {"en": "Hello! ", "ms": "Helo! ", "zh": "你好！", "ta": "வணக்கம்! "},
+        "SG": {"en": "Hello! ", "zh": "你好！", "ms": "Helo! ", "ta": "வணக்கம்! "},
+        "ID": {"id": "Halo! ", "en": "Hello! "},
+        "PH": {"en": "Hello! ", "tl": "Kamusta! "},
+        "TH": {"th": "สวัสดี! ", "en": "Hello! "},
+        "VN": {"vi": "Xin chào! ", "en": "Hello! "},
+        "MM": {"my": "မင်္ဂလာပါ! "},
+        "KH": {"km": "សួស្តី! "},
+        "LA": {"lo": "ສະບາຍດີ! "},
+        "BN": {"ms": "Helo! ", "en": "Hello! "},
+        "TL": {"pt": "Olá! ", "en": "Hello! "},
+    }
+    greeting = ""
+    if country_code.upper() in _GREETINGS:
+        country_greetings = _GREETINGS[country_code.upper()]
+        greeting = country_greetings.get(lang, country_greetings.get("en", ""))
+    full_text = greeting + text
 
     # Select voice based on country code, fallback to default
     country_voices = VOICE_MATRIX.get(country_code.upper(), VOICE_MATRIX["DEFAULT"])
@@ -96,7 +116,7 @@ async def speak_answer(text: str, country_code: str = "DEFAULT"):
         pygame.mixer.init()
 
     try:
-        communicate = edge_tts.Communicate(text, voice)
+        communicate = edge_tts.Communicate(full_text, voice)
         audio_data = b""
 
         async for chunk in communicate.stream():

@@ -1,6 +1,44 @@
 import json
+import os
 import threading
+
 import ollama
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_GEMINI_MODEL   = "gemini-2.0-flash"
+_FALLBACK_MODEL = "llama3.2"
+_gemini_client  = None  # lazy-initialised
+
+def _get_gemini():
+    global _gemini_client
+    if _gemini_client is None:
+        import google.generativeai as genai
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY not set")
+        genai.configure(api_key=api_key)
+        _gemini_client = genai.GenerativeModel(_GEMINI_MODEL)
+    return _gemini_client
+
+def _call_llm(prompt: str, max_tokens: int = 60) -> str:
+    """Try Gemini first; fall back to ollama on any failure."""
+    try:
+        model = _get_gemini()
+        response = model.generate_content(
+            prompt,
+            generation_config={"max_output_tokens": max_tokens, "temperature": 0.3},
+        )
+        return response.text.strip()
+    except Exception as e:
+        print(f"[LLM] Gemini failed ({type(e).__name__}: {e}) — falling back to {_FALLBACK_MODEL}")
+        response = ollama.chat(
+            model=_FALLBACK_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            options={"num_predict": max_tokens},
+        )
+        return response["message"]["content"].strip()
 
 ENABLE_TTS = False
 TTS_COUNTRY_CODE = "MY"
@@ -20,9 +58,10 @@ AUTO_SKIP_SECTIONS = {
 }
 
 # Context prefix injected into questions when inside these sections
+# The LLM handles translation based on user_language
 SECTION_CONTEXT_PREFIX = {
-    "MAKLUMAT PASANGAN": "Your spouse's",
-    "MAKLUMAT WARIS":    "Your next of kin's",
+    "MAKLUMAT PASANGAN": "spouse",
+    "MAKLUMAT WARIS":    "next of kin",
 }
 
 
@@ -59,7 +98,6 @@ class InclusiveCitizenAI:
         self.current_field_index: int = 0
         self._current_merged_slot: int = 0  # which line within a merged field
         self.user_language = user_language
-        self.model_id = "llama3.2"
 
         # Section state
         self._current_section: str = ""
@@ -168,7 +206,8 @@ class InclusiveCitizenAI:
                     if opt in norm:
                         # Only ask once
                         if norm not in self._skipped_sections:
-                            return f"SECTION_CONFIRM:{label}"
+                            confirm_q = self._ask_section_confirm(label)
+                            return f"SECTION_CONFIRM:{confirm_q}"
                         break
 
                 continue  # move to next field
@@ -207,33 +246,63 @@ class InclusiveCitizenAI:
         return yes
 
     # ------------------------------------------------------------------
+    def _ask_section_confirm(self, section_label: str) -> str:
+        """Generate a natural yes/no confirmation question for an optional section."""
+        prompt = (
+            f"You are a friendly voice assistant helping someone fill in a government form.\n"
+            f"The form has an optional section called: \"{section_label}\"\n"
+            f"User's language: {self.user_language}\n\n"
+            f"Write a single, natural spoken question asking if the user has information for this section.\n\n"
+            f"STRICT OUTPUT RULES:\n"
+            f"- Ask a simple yes or no question in the user's language.\n"
+            f"- Use plain everyday words. No jargon, no codes, no technical terms.\n"
+            f"- Zero slashes, zero dashes, zero brackets, zero parentheses, zero special characters.\n"
+            f"- Keep it under 15 words.\n"
+            f"- Return ONLY the question sentence. No quotes, no explanation.\n\n"
+            f"Examples:\n"
+            f"Section: MAKLUMAT PASANGAN, language English → Do you have any spouse information to fill in?\n"
+            f"Section: MAKLUMAT PASANGAN, language Bahasa Melayu → Adakah anda mempunyai maklumat pasangan untuk diisi?\n"
+            f"Section: MAKLUMAT WARIS, language English → Do you have next of kin details to add?\n"
+            f"Section: MAKLUMAT WARIS, language Bahasa Melayu → Adakah anda mempunyai maklumat waris untuk diisi?\n"
+        )
+        response = _call_llm(prompt, max_tokens=40)
+        import re as _re
+        clean = _re.sub(r'[\/\-\(\)\[\]"\']+', '', response.strip())
+        return clean.strip()
+
+    # ------------------------------------------------------------------
     def _ask_llm(self, label: str, prefix: str = "", line: int = 0, total_lines: int = 0) -> str:
         line_hint = ""
         if total_lines > 1:
-            line_hint = f" (up to {total_lines} lines, additional lines optional)"
+            line_hint = f" up to {total_lines} lines optional"
+        relationship = f" Field is about the user's {prefix}." if prefix else ""
         prompt = (
-            f"You are a friendly assistant helping fill a government form.\n"
-            f"Field label: \"{prefix}{label}{line_hint}\"\n"
-            f"Language: {self.user_language}\n\n"
-            f"Write a short, direct question asking the user for this field's value.\n"
-            f"Rules:\n"
-            f"- Remove technical codes like A1, B2, or parenthetical instructions.\n"
-            f"- Remove line suffixes like 'line 1', 'line 2', 'line 3'.\n"
-            f"- If the hint says 'additional lines optional', mention that in the question naturally.\n"
-            f"- Do NOT ask yes/no questions. Ask for the actual value.\n"
-            f"- Keep it under 20 words.\n"
-            f"- Return ONLY the question, no quotes, no explanation.\n\n"
+            f"You are a focused voice assistant collecting form data.\n"
+            f"Field: \"{label}{line_hint}\"\n"
+            f"Language: {self.user_language}\n"
+            f"{relationship}\n\n"
+            f"Write a single spoken question for this field.\n\n"
+            f"RULES:\n"
+            f"- Under 12 words. No filler words.\n"
+            f"- One question only. Ask for the value directly.\n"
+            f"- Plain text only. No slashes, dashes, brackets, parentheses, or special characters.\n"
+            f"- No codes like A1 or B2. No jargon.\n"
+            f"- If relationship given, ask about that person.\n"
+            f"- If lines optional, add: you may continue on the next line.\n"
+            f"- Return ONLY the question. No quotes, no explanation.\n\n"
             f"Examples:\n"
-            f"Label: Nama (seperti di MyKad) A1 -> What is your full name?\n"
-            f"Label: Nombor MyKad -> What is your IC number?\n"
-            f"Label: Alamat (up to 3 lines, additional lines optional) -> What is your mailing address? (you may provide up to 3 lines)\n"
+            f"Field: Nama seperti di MyKad A1, English → What is your full name?\n"
+            f"Field: Nombor MyKad, Bahasa Melayu → Apakah nombor kad pengenalan anda?\n"
+            f"Field: Alamat Surat Menyurat A5 up to 3 lines optional, English → What is your mailing address?\n"
+            f"Field: Nama Bank Pemohon A6, English → Which bank do you use?\n"
+            f"Field: Nombor Akaun Bank Pemohon A7, English → What is your bank account number?\n"
+            f"Field: Nama Bank Pasangan, relationship spouse, English → What is your spouse's bank name?\n"
         )
-        response = ollama.chat(
-            model=self.model_id,
-            messages=[{"role": "user", "content": prompt}],
-            options={"num_predict": 60},
-        )
-        return response["message"]["content"].strip().strip('"')
+        response = _call_llm(prompt, max_tokens=60)
+        # Strip any symbols the LLM may have slipped in
+        import re as _re
+        clean = _re.sub(r'[\/\-\(\)\[\]"\']+', '', response.strip())
+        return clean.strip()
 
     # ------------------------------------------------------------------
     def wait_for_answer(self, timeout: float = 300.0) -> str | None:
@@ -275,21 +344,16 @@ class InclusiveCitizenAI:
         prompt = (
             f"Your task is to extract information for the field: {label}.\n\n"
             f"STRICT RULES:\n"
-            f"- Extract the value EXACTLY as provided in the user's input.\n"
+            f"- Extract the value EXACTLY as provided in the user input.\n"
             f"- Do NOT summarize, translate, or infer.\n"
-            f"- Do NOT map specific locations to general ones (e.g., keep 'Ayer Itam' as 'Ayer Itam', not 'Penang').\n"
+            f"- Do NOT map specific locations to general ones.\n"
             f"- If the user provides a partial value, keep it exactly as written.\n"
-            f"- Output ONLY the extracted value — no labels, no quotes, no explanation.\n"
-            f"- If the input contains no relevant value, output RETRY.\n\n"
-            f"User input: \"{user_text}\"\n\n"
+            f"- Output ONLY the extracted value. No labels, no quotes, no explanation, no brackets, no parentheses, no slashes, no dashes, no special characters.\n"
+            f"- If the input contains no relevant value, output the single word RETRY.\n\n"
+            f"User input: {user_text}\n\n"
             f"Output:"
         )
-        response = ollama.chat(
-            model=self.model_id,
-            messages=[{"role": "user", "content": prompt}],
-            options={"num_predict": 40},
-        )
-        raw = response["message"]["content"].strip()
+        raw   = _call_llm(prompt, max_tokens=40)
         value = raw.split("\n")[0].replace("Output:", "").strip().strip('"').strip("'")
 
         print(f"[extract] field='{label}' input='{user_text}' -> '{value}'")
