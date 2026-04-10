@@ -2054,6 +2054,79 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         actions_alignment=ft.MainAxisAlignment.END,
     )
 
+    # ------------------------------------------------------------------ #
+    #  PDF preview / download modal                                       #
+    # ------------------------------------------------------------------ #
+    _pdf_out_path: list = [None]   # path of the last generated PDF
+
+    def _sanitise(s: str) -> str:
+        import re
+        return re.sub(r'[^\w\s-]', '', s).strip().replace(' ', '_')
+
+    pdf_preview_modal = ft.AlertDialog(
+        modal=True,
+        title=ft.Row(
+            [
+                ft.Icon(ft.icons.PICTURE_AS_PDF, color=ft.colors.RED_400, size=22),
+                ft.Text("PDF Ready", weight=ft.FontWeight.BOLD),
+            ],
+            spacing=8,
+        ),
+        content=ft.Column(
+            [
+                ft.Text("Your form has been filled successfully.", size=13),
+                ft.Text("", key="pdf_path_label", size=11, color=ft.colors.GREY_500, selectable=True),
+            ],
+            tight=True,
+            spacing=6,
+            width=380,
+        ),
+        actions=[
+            ft.TextButton(
+                "Close",
+                on_click=lambda _: (
+                    setattr(pdf_preview_modal, 'open', False),
+                    page.update(),
+                ),
+            ),
+            ft.ElevatedButton(
+                "Download",
+                icon=ft.icons.DOWNLOAD,
+                on_click=lambda _: _trigger_pdf_download(),
+                style=ft.ButtonStyle(bgcolor=accent, color=ft.colors.WHITE),
+            ),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+
+    def _trigger_pdf_download():
+        src = _pdf_out_path[0]
+        if not src:
+            return
+        fname = os.path.basename(src)
+        save_picker.save_file(
+            dialog_title="Save PDF",
+            file_name=fname,
+            allowed_extensions=["pdf"],
+        )
+
+    def _on_save_result(e: ft.FilePickerResultEvent):
+        import shutil
+        src = _pdf_out_path[0]
+        if not e.path or not src:
+            return
+        try:
+            shutil.copy2(src, e.path)
+            _ui_call(lambda: (
+                setattr(pdf_preview_modal, 'open', False),
+                _add_bubble(f"✅ PDF saved to: {e.path}", "status"),
+                page.update(),
+            ))
+        except Exception as exc:
+            _ui_call(lambda: (_add_bubble(f"⚠️ Save failed: {exc}", "status"), page.update()))
+
+    save_picker = ft.FilePicker(on_result=_on_save_result)
+
     def _do_write_pdf():
         ai    = _form_ai[0]
         entry = _form_map_entry[0]
@@ -2069,13 +2142,30 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 if not schema_path or not pdf_path:
                     _ui_call(lambda: (_add_bubble("⚠️ No PDF template configured.", "status"), page.update()))
                     return
+
+                # Build dynamic filename: [form_name]_[User_Name].pdf
+                form_name  = _sanitise(_form_name[0] or "form")
+                user_name  = _sanitise(
+                    next((v for k, v in ai.responses.items() if "nama" in k.lower() and "bank" not in k.lower() and "pegawai" not in k.lower()), "")
+                    or "user"
+                )
+                import tempfile, os as _os
+                out_dir  = _os.path.dirname(pdf_path)
+                out_path = _os.path.join(out_dir, f"{form_name}_{user_name}.pdf")
+
                 out = fill_pdf(
                     ai.responses, schema_path, pdf_path,
+                    output_path=out_path,
                     input_bboxes=ai._input_bboxes,
                     signature_path=sig,
                 )
+
                 def _ok():
-                    _add_bubble(f"✅ PDF saved:\n{out}", "status")
+                    _pdf_out_path[0] = out
+                    # Update path label in modal
+                    pdf_preview_modal.content.controls[1].value = out
+                    _add_bubble("✅ Your PDF is ready.", "status")
+                    pdf_preview_modal.open = True
                     page.update()
                 _ui_call(_ok)
             except Exception as exc:
@@ -2088,6 +2178,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
     page.overlay.append(file_picker)
     page.overlay.append(sig_modal)
+    page.overlay.append(pdf_preview_modal)
+    page.overlay.append(save_picker)
     page.update()
 
     # ------------------------------------------------------------------ #
