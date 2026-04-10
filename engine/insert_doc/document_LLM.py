@@ -187,7 +187,10 @@ class InclusiveCitizenAI:
 
             self._current_merged_slot = 0
             num_bboxes = len(field.get("_merged_bboxes") or [])
-            question = self._ask_llm(label, prefix, total_lines=num_bboxes)
+            # Strip internal line suffixes from the label before asking
+            import re as _re
+            clean_label = _re.sub(r'\s+line\s+\d+\s*$', '', label, flags=_re.IGNORECASE).strip()
+            question = self._ask_llm(clean_label, prefix, total_lines=num_bboxes)
             return question
 
         return None  # all fields processed

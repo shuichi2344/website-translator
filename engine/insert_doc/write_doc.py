@@ -154,17 +154,41 @@ def fill_pdf(
             f"{base}_filled_{ts}.pdf"
         )
 
-    # Insert signature at hardcoded Tandatangan position
+    # Insert signature + auto-date (Hari / Bulan / Tahun)
     if signature_path and os.path.exists(signature_path):
         sig_page = doc[0]
         sig_ph = sig_page.rect.height
-        x0 = 200.35
-        y_t_bl = 316.13
-        x1 = x0 + 80
-        y_b_bl = y_t_bl - 40
-        sig_rect = fitz.Rect(x0, sig_ph - y_t_bl, x0 + 60, sig_ph - (y_t_bl - 20))
+        sig_rect = fitz.Rect(200.35, sig_ph - 316.13, 260.35, sig_ph - 296.13)
         sig_page.insert_image(sig_rect, filename=signature_path, keep_proportion=False)
         print(f"[write_doc] Signature inserted at {sig_rect}")
+
+    # Auto-insert current date into Hari / Bulan / Tahun from schema coords
+    now = datetime.now()
+    date_fields = {
+        "Hari":  now.strftime("%d"),
+        "Bulan": now.strftime("%m"),
+        "Tahun": now.strftime("%Y"),
+    }
+    with open(schema_path, "r", encoding="utf-8") as _f:
+        _schema = json.load(_f)
+    _schema_list = _schema if isinstance(_schema, list) else (_schema.get("fields") or [])
+    _date_map = {f["original_label"]: f for f in _schema_list if f.get("original_label") in date_fields}
+
+    for label, value in date_fields.items():
+        entry = _date_map.get(label)
+        if not entry:
+            print(f"[write_doc] Date field '{label}' not found in schema")
+            continue
+        ib = entry.get("input_bbox")
+        if not ib:
+            print(f"[write_doc] Date field '{label}' has no input_bbox")
+            continue
+        pg = doc[(entry.get("page") or 1) - 1]
+        ph = pg.rect.height
+        x   = float(ib["l"])
+        y   = ph - float(ib["t"]) - 2
+        pg.insert_text(fitz.Point(x, y), value, fontsize=7, color=(0, 0, 0))
+        print(f"[write_doc] Date '{label}'={value} at x={x:.1f} y={y:.1f}")
 
     doc.save(output_path)
     doc.close()

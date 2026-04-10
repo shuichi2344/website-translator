@@ -2055,13 +2055,40 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     )
 
     # ------------------------------------------------------------------ #
-    #  PDF preview / download modal                                       #
+    #  PDF preview / download modal + helpers                             #
     # ------------------------------------------------------------------ #
-    _pdf_out_path: list = [None]   # path of the last generated PDF
+    _pdf_out_path: list = [None]
 
     def _sanitise(s: str) -> str:
         import re
         return re.sub(r'[^\w\s-]', '', s).strip().replace(' ', '_')
+
+    def _trigger_pdf_download():
+        src = _pdf_out_path[0]
+        if not src:
+            return
+        save_picker.save_file(
+            dialog_title="Save PDF",
+            file_name=os.path.basename(src),
+            allowed_extensions=["pdf"],
+        )
+
+    def _on_save_result(e: ft.FilePickerResultEvent):
+        import shutil
+        src = _pdf_out_path[0]
+        if not e.path or not src:
+            return
+        try:
+            shutil.copy2(src, e.path)
+            def _ok():
+                pdf_preview_modal.open = False
+                page.update()
+                _run_in_thread(_show_success_overlay)
+            _ui_call(_ok)
+        except Exception as exc:
+            _ui_call(lambda: (_add_bubble(f"⚠️ Save failed: {exc}", "status"), page.update()))
+
+    save_picker = ft.FilePicker(on_result=_on_save_result)
 
     pdf_preview_modal = ft.AlertDialog(
         modal=True,
@@ -2075,7 +2102,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         content=ft.Column(
             [
                 ft.Text("Your form has been filled successfully.", size=13),
-                ft.Text("", key="pdf_path_label", size=11, color=ft.colors.GREY_500, selectable=True),
+                ft.Text("", size=11, color=ft.colors.GREY_500, selectable=True),
             ],
             tight=True,
             spacing=6,
@@ -2099,33 +2126,102 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         actions_alignment=ft.MainAxisAlignment.END,
     )
 
-    def _trigger_pdf_download():
-        src = _pdf_out_path[0]
-        if not src:
-            return
-        fname = os.path.basename(src)
-        save_picker.save_file(
-            dialog_title="Save PDF",
-            file_name=fname,
-            allowed_extensions=["pdf"],
-        )
+    # ------------------------------------------------------------------ #
+    #  PDF success overlay (blur + checkmark, auto-fades)                 #
+    # ------------------------------------------------------------------ #
+    #  PDF success overlay (blur + checkmark, pop-in/pop-out)             #
+    # ------------------------------------------------------------------ #
+    _overlay_icon = ft.Icon(
+        ft.icons.CHECK_CIRCLE_ROUNDED,
+        color=ft.colors.with_opacity(0.0, ft.colors.GREEN_400),
+        size=0,
+    )
+    _overlay_card = ft.Container(
+        width=0,
+        height=0,
+        border_radius=999,
+        bgcolor=ft.colors.with_opacity(0.18, ft.colors.WHITE),
+        alignment=ft.alignment.center,
+        shadow=ft.BoxShadow(
+            spread_radius=0,
+            blur_radius=32,
+            color=ft.colors.with_opacity(0.35, ft.colors.WHITE),
+            offset=ft.Offset(0, 0),
+        ),
+        content=_overlay_icon,
+    )
+    _success_overlay = ft.Container(
+        visible=False,
+        expand=True,
+        bgcolor=ft.colors.with_opacity(0.0, "#000000"),
+        alignment=ft.alignment.center,
+        content=_overlay_card,
+    )
 
-    def _on_save_result(e: ft.FilePickerResultEvent):
-        import shutil
-        src = _pdf_out_path[0]
-        if not e.path or not src:
-            return
-        try:
-            shutil.copy2(src, e.path)
-            _ui_call(lambda: (
-                setattr(pdf_preview_modal, 'open', False),
-                _add_bubble(f"✅ PDF saved to: {e.path}", "status"),
-                page.update(),
+    def _show_success_overlay():
+        import time, math
+
+        TARGET_CARD = 140
+        TARGET_ICON = 80
+
+        def _frame(card_sz, icon_sz, bg_op, icon_op):
+            _overlay_card.width        = card_sz
+            _overlay_card.height       = card_sz
+            _overlay_card.border_radius = card_sz / 2
+            _overlay_icon.size         = icon_sz
+            _overlay_icon.color        = ft.colors.with_opacity(icon_op, ft.colors.GREEN_400)
+            _success_overlay.bgcolor   = ft.colors.with_opacity(bg_op, "#000000")
+            page.update()
+
+        _success_overlay.visible = True
+        page.update()
+
+        # — pop in: scale 0 → 110% over 12 frames (~0.22s)
+        POP_IN = 12
+        for i in range(1, POP_IN + 1):
+            t = i / POP_IN
+            # ease-out cubic
+            e = 1 - (1 - t) ** 3
+            scale = e * 1.10
+            _ui_call(lambda s=scale: _frame(
+                TARGET_CARD * s, TARGET_ICON * s,
+                min(t * 0.6, 0.55), min(t * 1.2, 1.0),
             ))
-        except Exception as exc:
-            _ui_call(lambda: (_add_bubble(f"⚠️ Save failed: {exc}", "status"), page.update()))
+            time.sleep(0.018)
 
-    save_picker = ft.FilePicker(on_result=_on_save_result)
+        # — settle: 110% → 100% over 5 frames
+        SETTLE = 5
+        for i in range(1, SETTLE + 1):
+            t = i / SETTLE
+            scale = 1.10 - 0.10 * t
+            _ui_call(lambda s=scale: _frame(
+                TARGET_CARD * s, TARGET_ICON * s, 0.55, 1.0,
+            ))
+            time.sleep(0.018)
+
+        # — hold 2 s
+        time.sleep(2.0)
+
+        # — pop out: scale 100% → 0, fade bg over 14 frames (~0.25s)
+        POP_OUT = 14
+        for i in range(1, POP_OUT + 1):
+            t = i / POP_OUT
+            e = t ** 2          # ease-in quad
+            scale = max(1.0 - e, 0)
+            bg_op = max(0.55 * (1 - t), 0)
+            icon_op = max(1.0 - t * 1.5, 0)
+            _ui_call(lambda s=scale, b=bg_op, io=icon_op: _frame(
+                TARGET_CARD * s, TARGET_ICON * s, b, io,
+            ))
+            time.sleep(0.018)
+
+        def _hide():
+            _success_overlay.visible = False
+            _overlay_card.width  = 0
+            _overlay_card.height = 0
+            _overlay_icon.size   = 0
+            page.update()
+        _ui_call(_hide)
 
     def _do_write_pdf():
         ai    = _form_ai[0]
@@ -2149,7 +2245,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     next((v for k, v in ai.responses.items() if "nama" in k.lower() and "bank" not in k.lower() and "pegawai" not in k.lower()), "")
                     or "user"
                 )
-                import tempfile, os as _os
+                import os as _os
                 out_dir  = _os.path.dirname(pdf_path)
                 out_path = _os.path.join(out_dir, f"{form_name}_{user_name}.pdf")
 
@@ -2162,11 +2258,10 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
                 def _ok():
                     _pdf_out_path[0] = out
-                    # Update path label in modal
                     pdf_preview_modal.content.controls[1].value = out
-                    _add_bubble("✅ Your PDF is ready.", "status")
                     pdf_preview_modal.open = True
                     page.update()
+                    _run_in_thread(_show_success_overlay)
                 _ui_call(_ok)
             except Exception as exc:
                 def _err():
@@ -2180,6 +2275,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     page.overlay.append(sig_modal)
     page.overlay.append(pdf_preview_modal)
     page.overlay.append(save_picker)
+    page.overlay.append(_success_overlay)
     page.update()
 
     # ------------------------------------------------------------------ #
