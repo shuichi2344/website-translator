@@ -529,8 +529,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             bgcolor=ft.colors.with_opacity(0.04, accent),
             padding=12,
             ink=True,
-            on_click=lambda _: file_picker.pick_files(
-                allowed_extensions=["pdf", "docx", "png", "jpg", "jpeg"]
+            on_click=lambda _: scan_picker.pick_files(
+                dialog_title="Select a PDF form to scan",
+                allowed_extensions=["pdf"],
             ),
         )
 
@@ -672,31 +673,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 _form_ai[0] = None
 
     def _on_form_selected(form: dict):
-        schema_path = form.get("schema_file", "")
-        display_name = form.get("display_name", "Form")
-
         set_mode(None)
-
-        try:
-            ai = InclusiveCitizenAI(schema_path, user_language=state.language or "English")
-            _form_ai[0] = ai
-            _form_name[0] = display_name
-            _form_map_entry[0] = form
-            _form_filling[0] = True
-            _add_bubble(f"Starting form: {display_name}", "user")
-            _add_bubble(
-                f"I'll guide you through the {display_name}. "
-                "Answer each question via the chat box or mic button.",
-                "bot"
-            )
-            page.update()
-            # Run the blocking session loop in a background thread
-            _run_in_thread(lambda: _run_form_session(ai, display_name))
-        except Exception as exc:
-            _add_bubble(f"⚠️ Could not load form: {exc}", "status")
-            page.update()
-            _add_bubble(f"⚠️ Could not load form: {exc}", "status")
-            page.update()
+        # Reuse the same interview card UI used for scanned PDFs
+        _run_in_thread(lambda: _ui_call(lambda: _open_interview_for_entry(form)))
 
     _country_dropdown = ft.Dropdown(
         label="Select Country",
@@ -2116,10 +2095,12 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
             img.save(tmp.name)
             _form_sig_path[0] = tmp.name
+            _iv_sig_path[0] = tmp.name
             print(f"[signature] Saved → {tmp.name}")
         except Exception as e:
             print(f"[signature] Error saving: {e}")
             _form_sig_path[0] = None
+            _iv_sig_path[0] = None
 
         sig_modal.open = False
         _sig_points.clear()
@@ -2130,7 +2111,11 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             border_radius=8,
         )
         page.update()
-        _do_write_pdf()
+        # Route to the correct write function depending on which flow is active
+        if _iv_entry[0] is not None:
+            _iv_do_write_pdf()
+        else:
+            _do_write_pdf()
 
     sig_modal = ft.AlertDialog(
         modal=True,
@@ -2153,7 +2138,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             ft.TextButton("Skip", on_click=lambda _: (
                 setattr(sig_modal, 'open', False),
                 page.update(),
-                _do_write_pdf(),
+                _iv_do_write_pdf() if _iv_entry[0] is not None else _do_write_pdf(),
             )),
             ft.ElevatedButton(
                 "Save & Continue",
@@ -2194,6 +2179,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 pdf_preview_modal.open = False
                 page.update()
                 _run_in_thread(_show_success_overlay)
+                # Clean up temp JSON schema created by document_manager.process_pdf
+                schema = _iv_schema_to_delete[0]
+                if schema and os.path.exists(schema):
+                    try:
+                        os.remove(schema)
+                        print(f"[cleanup] Deleted temp schema: {schema}")
+                    except Exception as ex:
+                        print(f"[cleanup] Could not delete schema: {ex}")
+                    _iv_schema_to_delete[0] = None
             _ui_call(_ok)
         except Exception as exc:
             _ui_call(lambda: (_add_bubble(f"⚠️ Save failed: {exc}", "status"), page.update()))
@@ -2381,11 +2375,695 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
         _run_in_thread(_write)
 
+    # ------------------------------------------------------------------ #
+    #  Interview Modal — centered Card UI                                 #
+    # ------------------------------------------------------------------ #
+
+    # ── Question card (center of modal) ──────────────────────────────────
+    _iv_question_text = ft.Text(
+        "",
+        size=state.font_sp() + 4,
+        weight=ft.FontWeight.W_600,
+        color=state.text_color(),
+        text_align=ft.TextAlign.CENTER,
+        no_wrap=False,
+    )
+
+    # ── Listen button (defined here so it can be embedded in the card) ───
+    _iv_tts_playing:  list = [False]
+    _iv_tts_loading:  list = [False]
+    _iv_tts_paused:   list = [False]
+    _iv_tts_audio:    list = [None]
+
+    _iv_listen_btn = ft.TextButton(
+        text="🔊 Listen",
+        style=ft.ButtonStyle(
+            color=accent,
+            bgcolor=ft.colors.with_opacity(0.08, accent),
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+            shape=ft.RoundedRectangleBorder(radius=8),
+        ),
+    )
+
+    _iv_question_card = ft.Container(
+        content=ft.Stack(
+            [
+                # ── Question content centred in the card ──────────────
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Icon(ft.icons.HELP_OUTLINE_ROUNDED, color=accent, size=32),
+                            _iv_question_text,
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=16,
+                        scroll=ft.ScrollMode.AUTO,
+                    ),
+                    alignment=ft.alignment.center,
+                    expand=True,
+                ),
+                # ── Listen button pinned bottom-left ──────────────────
+                ft.Container(
+                    content=_iv_listen_btn,
+                    alignment=ft.alignment.bottom_left,
+                    left=0,
+                    bottom=0,
+                ),
+            ],
+            expand=True,
+        ),
+        width=420,
+        height=240,
+        border_radius=20,
+        bgcolor=state.surface_color(),
+        border=ft.border.all(2, accent),
+        padding=ft.padding.symmetric(horizontal=16, vertical=16),
+        shadow=ft.BoxShadow(
+            blur_radius=24,
+            spread_radius=0,
+            color=ft.colors.with_opacity(0.10, "#000000"),
+            offset=ft.Offset(0, 6),
+        ),
+        animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
+    )
+
+    # ── Last answer echo + status line ───────────────────────────────────
+    _iv_last_answer_text = ft.Text(
+        "",
+        size=state.font_sp() - 1,
+        color=ft.colors.with_opacity(0.6, state.text_color()),
+        text_align=ft.TextAlign.CENTER,
+        italic=True,
+    )
+
+    _iv_status_text = ft.Text(
+        "",
+        size=state.font_sp() - 2,
+        color=accent,
+        text_align=ft.TextAlign.CENTER,
+        weight=ft.FontWeight.W_500,
+    )
+
+    _interview_progress_text = ft.Text(
+        "",
+        size=state.font_sp() - 2,
+        color=ft.colors.with_opacity(0.45, state.text_color()),
+        text_align=ft.TextAlign.CENTER,
+    )
+
+    _interview_title = ft.Text(
+        "Interview",
+        size=state.font_sp() + 2,
+        weight=ft.FontWeight.BOLD,
+        color=state.text_color(),
+    )
+
+    _interview_field = ft.TextField(
+        hint_text="Type your answer...",
+        expand=True,
+        min_lines=1,
+        max_lines=3,
+        border_color=ft.colors.TRANSPARENT,
+        bgcolor=ft.colors.TRANSPARENT,
+        color=state.text_color(),
+        hint_style=ft.TextStyle(color=ft.colors.with_opacity(0.45, state.text_color()), size=state.font_sp()),
+        content_padding=ft.padding.symmetric(horizontal=8, vertical=14),
+        text_align=ft.TextAlign.CENTER,
+    )
+
+    _interview_mic_icon = ft.Icon(ft.icons.MIC_ROUNDED, color=ft.colors.WHITE, size=22)
+    _interview_mic_circle = ft.Container(
+        content=_interview_mic_icon,
+        width=48,
+        height=48,
+        border_radius=24,
+        gradient=_grad,
+        alignment=ft.alignment.center,
+        animate=ft.animation.Animation(200, ft.AnimationCurve.EASE_OUT),
+    )
+
+    # State for the interview modal session
+    _iv_ai: list = [None]
+    _iv_entry: list = [None]
+    _iv_filling: list = [False]
+    _iv_confirming: list = [False]
+    _iv_sig_path: list = [None]
+    _iv_schema_to_delete: list = [None]
+    _iv_audio_chunks: list = []
+    _iv_sd_stream: list = [None]
+    _iv_is_recording: list = [False]
+    _iv_is_processing: list = [False]
+
+    def _iv_set_question(text: str):
+        """Update the centered question card and clear the previous answer."""
+        _iv_question_text.value = text
+        _iv_question_card.border = ft.border.all(2, accent)
+        _iv_last_answer_text.value = ""
+        _iv_status_text.value = ""
+        _interview_field.value = ""
+        # Stop any ongoing TTS and reset the listen button
+        try:
+            import pygame
+            if pygame.mixer.get_init():
+                pygame.mixer.music.stop()
+        except Exception:
+            pass
+        _iv_tts_playing[0] = False
+        _iv_tts_loading[0] = False
+        _iv_tts_paused[0] = False
+        _iv_listen_btn.text = "🔊 Listen"
+        _iv_listen_btn.disabled = False
+        page.update()
+
+    def _iv_set_status(text: str):
+        """Show a status/info line below the card (replaces last-answer echo)."""
+        _iv_status_text.value = text
+        _iv_last_answer_text.value = ""
+        page.update()
+
+    def _iv_echo_answer(text: str):
+        """Show the user's last answer below the card."""
+        _iv_last_answer_text.value = f'You said: "{text}"'
+        _iv_status_text.value = ""
+        page.update()
+
+    # Legacy helper kept so existing call-sites (_iv_run_session etc.) still work.
+    # "bot" → updates question card; "user" → echoes answer; "status" → status line.
+    def _iv_add_bubble(text: str, role: str = "bot"):
+        if role == "user":
+            _iv_echo_answer(text)
+        elif role == "status":
+            _iv_set_status(text)
+        else:
+            _iv_set_question(text)
+
+    def _iv_close_modal():
+        """Close the interview modal and clean up session state."""
+        interview_modal.open = False
+        _iv_ai[0] = None
+        _iv_entry[0] = None
+        _iv_filling[0] = False
+        _iv_confirming[0] = False
+        _iv_sig_path[0] = None
+        _iv_question_text.value = ""
+        _iv_last_answer_text.value = ""
+        _iv_status_text.value = ""
+        _interview_progress_text.value = ""
+        page.update()
+
+    def _iv_run_session(ai: InclusiveCitizenAI):
+        """Background thread: drives the form Q&A loop inside the modal."""
+        try:
+            while True:
+                result = ai.generate_question()
+
+                if result is None:
+                    # Form complete — show summary inside the card
+                    tts_summary = ai.get_tts_summary()
+                    def _done():
+                        _iv_filling[0] = False
+                        _iv_confirming[0] = True
+                        _iv_question_text.value = tts_summary
+                        _iv_question_card.border = ft.border.all(2, ft.colors.GREEN_400)
+                        _iv_last_answer_text.value = ""
+                        _iv_status_text.value = ""
+                        _interview_field.value = ""
+                        _interview_progress_text.value = "Type 'yes' to confirm or 'no' to discard."
+                        page.update()
+                    _ui_call(_done)
+                    return
+
+                if result.startswith("SECTION_CONFIRM:"):
+                    confirm_q = result.split(":", 1)[1]
+                    _ui_call(lambda q=confirm_q: (_iv_add_bubble(q, "bot"), page.update()))
+                    answer = ai.wait_for_answer(timeout=300.0)
+                    if answer is None:
+                        _ui_call(lambda: (_iv_add_bubble("⏱️ Session timed out.", "status"), page.update()))
+                        break
+                    ai.confirm_section(answer)
+                    continue
+
+                _ui_call(lambda q=result: (_iv_add_bubble(q, "bot"), page.update()))
+
+                # Update progress
+                answered, total = ai.progress
+                _ui_call(lambda a=answered, t=total: (
+                    setattr(_interview_progress_text, 'value', f"{a + 1} / {t}"),
+                    page.update(),
+                ))
+
+                answer = ai.wait_for_answer(timeout=300.0)
+                if answer is None:
+                    _ui_call(lambda: (_iv_add_bubble("⏱️ Session timed out.", "status"), page.update()))
+                    break
+
+                extracted = ai.extract_and_save(answer)
+                if extracted == "RETRY":
+                    _ui_call(lambda: (_iv_add_bubble("I didn't catch that — could you try again?", "bot"), page.update()))
+
+        except Exception as exc:
+            def _err():
+                _iv_filling[0] = False
+                _iv_ai[0] = None
+                _iv_add_bubble(f"⚠️ Error: {exc}", "status")
+                page.update()
+            _ui_call(_err)
+        finally:
+            _iv_filling[0] = False
+            if not _iv_confirming[0]:
+                _iv_ai[0] = None
+
+    def _iv_do_write_pdf():
+        """Generate the filled PDF from interview responses."""
+        ai    = _iv_ai[0]
+        entry = _iv_entry[0]
+        sig   = _iv_sig_path[0]
+        _iv_ai[0] = None
+
+        def _write():
+            try:
+                from engine.insert_doc.write_doc import fill_pdf
+                schema_path = entry.get("schema_file", "")
+                pdf_path    = entry.get("pdf_file", "")
+                if not schema_path or not pdf_path:
+                    _ui_call(lambda: (_iv_add_bubble("⚠️ No PDF template configured.", "status"), page.update()))
+                    return
+
+                form_name = _sanitise(_iv_entry[0].get("display_name", "form") if _iv_entry[0] else "form")
+                user_name = _sanitise(
+                    next((v for k, v in ai.responses.items()
+                          if "nama" in k.lower() and "bank" not in k.lower() and "pegawai" not in k.lower()), "")
+                    or "user"
+                )
+                import os as _os
+                out_dir  = _os.path.dirname(pdf_path)
+                out_path = _os.path.join(out_dir, f"{form_name}_{user_name}.pdf")
+
+                out = fill_pdf(
+                    ai.responses, schema_path, pdf_path,
+                    output_path=out_path,
+                    input_bboxes=ai._input_bboxes,
+                    signature_path=sig,
+                )
+
+                def _ok():
+                    _pdf_out_path[0] = out
+                    # Store schema path for cleanup after download
+                    _iv_schema_to_delete[0] = schema_path
+                    pdf_preview_modal.content.controls[1].value = out
+                    pdf_preview_modal.open = True
+                    _iv_close_modal()
+                    page.update()
+                    _run_in_thread(_show_success_overlay)
+                _ui_call(_ok)
+            except Exception as exc:
+                _ui_call(lambda: (_iv_add_bubble(f"⚠️ Failed to write PDF: {exc}", "status"), page.update()))
+
+        _run_in_thread(_write)
+
+    def _iv_on_submit(e=None):
+        msg = (_interview_field.value or "").strip()
+        if not msg:
+            return
+
+        ai = _iv_ai[0]
+
+        if _iv_filling[0] and ai is not None:
+            _iv_add_bubble(msg, "user")
+            _interview_field.value = ""
+            page.update()
+            ai.submit_answer(msg)
+            return
+
+        if _iv_confirming[0]:
+            _iv_add_bubble(msg, "user")
+            _interview_field.value = ""
+            page.update()
+            _yes = any(w in msg.lower() for w in ("yes", "ya", "correct", "ok", "yep", "betul", "confirm"))
+            if _yes:
+                _iv_confirming[0] = False
+                _iv_sig_path[0] = None
+                # Open signature modal — _iv_do_write_pdf is called after signing/skipping
+                _sig_points.clear()
+                sig_modal.open = True
+                page.update()
+            else:
+                _iv_confirming[0] = False
+                _iv_add_bubble("No problem — the form has been discarded.", "status")
+                _run_in_thread(lambda: (__import__('time').sleep(1.5), _ui_call(_iv_close_modal)))
+            return
+
+    def _iv_on_field_change(e):
+        has_text = bool((_interview_field.value or "").strip())
+        _interview_mic_icon.name = ft.icons.SEND_ROUNDED if has_text else ft.icons.MIC_ROUNDED
+        page.update()
+
+    _interview_field.on_submit = _iv_on_submit
+    _interview_field.on_change = _iv_on_field_change
+
+    def _iv_mic_tap_down(_):
+        if (_interview_field.value or "").strip():
+            return
+        if _iv_is_processing[0]:
+            return
+        import sounddevice as sd
+        _iv_is_recording[0] = True
+        _iv_audio_chunks.clear()
+        _interview_field.hint_text = "Recording..."
+        _interview_mic_circle.gradient = None
+        _interview_mic_circle.bgcolor = ft.colors.RED_400
+        page.update()
+        _iv_sd_stream[0] = sd.InputStream(
+            samplerate=16000, channels=1, dtype="float32",
+            callback=lambda indata, *_: _iv_audio_chunks.append(indata.copy()),
+        )
+        _iv_sd_stream[0].start()
+
+    def _iv_mic_tap_up(_):
+        if not _iv_is_recording[0]:
+            if (_interview_field.value or "").strip():
+                _iv_on_submit()
+            return
+
+        _iv_is_recording[0] = False
+        sd_stream = _iv_sd_stream[0]
+        if sd_stream:
+            sd_stream.stop()
+            sd_stream.close()
+            _iv_sd_stream[0] = None
+
+        _interview_field.hint_text = "Type your answer..."
+        _interview_mic_circle.gradient = _grad
+        _interview_mic_circle.bgcolor = None
+        page.update()
+
+        def _transcribe():
+            import numpy as np, soundfile as sf, tempfile, os as _os
+            _iv_is_processing[0] = True
+            _ui_call(lambda: (
+                setattr(_interview_field, 'hint_text', 'Transcribing...'),
+                setattr(_interview_mic_icon, 'name', ft.icons.STOP_ROUNDED),
+                page.update(),
+            ))
+            try:
+                text = ""
+                if _iv_audio_chunks:
+                    audio_np = np.concatenate(_iv_audio_chunks, axis=0).flatten()
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                        tmp = f.name
+                    sf.write(tmp, audio_np, 16000)
+                    _, _, _, _, transcribe_audio = _get_preloaded_modules()
+                    text = transcribe_audio(tmp, normalize_to_question=False) if transcribe_audio else ""
+                    _os.remove(tmp)
+
+                def _done(t=text):
+                    _iv_is_processing[0] = False
+                    _interview_field.hint_text = "Type your answer..."
+                    _interview_mic_icon.name = ft.icons.MIC_ROUNDED
+                    _interview_mic_circle.gradient = _grad
+                    _interview_mic_circle.bgcolor = None
+                    if t:
+                        _iv_add_bubble(t, "user")
+                        page.update()
+                        ai = _iv_ai[0]
+                        if ai and (_iv_filling[0] or _iv_confirming[0]):
+                            ai.submit_answer(t)
+                    page.update()
+                _ui_call(_done)
+            except Exception as exc:
+                def _err():
+                    _iv_is_processing[0] = False
+                    _interview_field.hint_text = "Type your answer..."
+                    _interview_mic_icon.name = ft.icons.MIC_ROUNDED
+                    _interview_mic_circle.gradient = _grad
+                    _interview_mic_circle.bgcolor = None
+                    _iv_add_bubble(f"⚠️ Transcription error: {exc}", "status")
+                    page.update()
+                _ui_call(_err)
+
+        threading.Thread(target=_transcribe, daemon=True).start()
+
+    _iv_mic_btn = ft.GestureDetector(
+        content=_interview_mic_circle,
+        on_tap_down=_iv_mic_tap_down,
+        on_tap_up=_iv_mic_tap_up,
+    )
+
+    _iv_input_bar = ft.Container(
+        content=_interview_field,
+        expand=True,
+        border_radius=24,
+        bgcolor=state.surface_color(),
+        border=ft.border.all(2, accent),
+        padding=ft.padding.symmetric(horizontal=12, vertical=4),
+    )
+
+    def _iv_on_listen(_):
+        if _iv_tts_paused[0]:
+            try:
+                import pygame
+                pygame.mixer.music.unpause()
+                _iv_tts_paused[0] = False
+                _iv_tts_playing[0] = True
+                _iv_listen_btn.text = "⏸️ Pause"
+                page.update()
+            except Exception as exc:
+                print(f"[iv_tts] resume error: {exc}")
+            return
+
+        if _iv_tts_playing[0]:
+            try:
+                import pygame
+                pygame.mixer.music.pause()
+                _iv_tts_paused[0] = True
+                _iv_tts_playing[0] = False
+                _iv_listen_btn.text = "▶️ Resume"
+                page.update()
+            except Exception as exc:
+                print(f"[iv_tts] pause error: {exc}")
+            return
+
+        if _iv_tts_loading[0]:
+            return
+
+        text = _iv_question_text.value or ""
+        if not text.strip():
+            return
+
+        _iv_tts_loading[0] = True
+        _iv_listen_btn.text = "🔄 Loading..."
+        _iv_listen_btn.disabled = True
+        page.update()
+
+        def _speak():
+            try:
+                import pygame, tempfile, os, asyncio as _asyncio, edge_tts
+                from engine.speech.text_to_speech import VOICE_MATRIX, get_lang
+
+                if not pygame.mixer.get_init():
+                    pygame.mixer.init()
+
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+                _iv_tts_audio[0] = tmp.name
+                tmp.close()
+
+                country_code = _COUNTRY_CODE_MAP.get(state.country, "DEFAULT")
+                lang = get_lang(text)
+                country_voices = VOICE_MATRIX.get(country_code, VOICE_MATRIX["DEFAULT"])
+                voice = (
+                    country_voices if isinstance(country_voices, str)
+                    else country_voices.get(lang, country_voices.get("en", "en-US-AriaNeural"))
+                )
+
+                async def _gen():
+                    for v in [voice, "en-US-AriaNeural"]:
+                        try:
+                            await edge_tts.Communicate(text, v).save(_iv_tts_audio[0])
+                            return
+                        except Exception:
+                            pass
+
+                loop = _asyncio.new_event_loop()
+                _asyncio.set_event_loop(loop)
+                loop.run_until_complete(_gen())
+                loop.close()
+
+                def _set_playing():
+                    _iv_tts_loading[0] = False
+                    _iv_tts_playing[0] = True
+                    _iv_listen_btn.text = "⏸️ Pause"
+                    _iv_listen_btn.disabled = False
+                    page.update()
+                _ui_call(_set_playing)
+
+                pygame.mixer.music.load(_iv_tts_audio[0])
+                pygame.mixer.music.play()
+                while pygame.mixer.music.get_busy():
+                    pygame.time.Clock().tick(10)
+                    if _iv_tts_paused[0]:
+                        while _iv_tts_paused[0]:
+                            pygame.time.Clock().tick(10)
+
+                try:
+                    os.unlink(_iv_tts_audio[0])
+                except Exception:
+                    pass
+
+            except Exception as exc:
+                print(f"[iv_tts] error: {exc}")
+            finally:
+                def _reset():
+                    _iv_tts_loading[0] = False
+                    _iv_tts_playing[0] = False
+                    _iv_tts_paused[0] = False
+                    _iv_listen_btn.text = "🔊 Listen"
+                    _iv_listen_btn.disabled = False
+                    page.update()
+                _ui_call(_reset)
+
+        _run_in_thread(_speak)
+
+    _iv_listen_btn.on_click = _iv_on_listen
+
+    interview_modal = ft.AlertDialog(
+        modal=True,
+        title=ft.Row(
+            [
+                ft.Icon(ft.icons.ARTICLE_OUTLINED, color=accent, size=20),
+                _interview_title,
+                ft.Container(expand=True),
+                _interview_progress_text,
+                ft.Container(width=8),
+                ft.IconButton(
+                    icon=ft.icons.CLOSE,
+                    icon_color=ft.colors.with_opacity(0.5, state.text_color()),
+                    icon_size=18,
+                    tooltip="Cancel",
+                    on_click=lambda _: _iv_close_modal(),
+                ),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        content=ft.Container(
+            width=480,
+            height=420,
+            bgcolor=state.bg_color(),
+            border_radius=12,
+            padding=ft.padding.symmetric(horizontal=16, vertical=20),
+            content=ft.Column(
+                [
+                    # ── Centered question card ────────────────────────
+                    ft.Container(
+                        content=_iv_question_card,
+                        alignment=ft.alignment.center,
+                    ),
+                    # ── Last answer echo + status ─────────────────────
+                    ft.Container(
+                        content=ft.Column(
+                            [_iv_last_answer_text, _iv_status_text],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=2,
+                        ),
+                        alignment=ft.alignment.center,
+                        height=36,
+                    ),
+                    # ── Bottom row: input + mic ───────────────────────
+                    ft.Row(
+                        [_iv_input_bar, _iv_mic_btn],
+                        spacing=10,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ],
+                spacing=12,
+                expand=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        ),
+        actions=[],
+    )
+
+    # ------------------------------------------------------------------ #
+    #  Add / Scan — PDF form scanner (direct-to-interview flow)           #
+    # ------------------------------------------------------------------ #
+    _scan_status_snack = ft.SnackBar(content=ft.Text(""), open=False)
+    page.overlay.append(_scan_status_snack)
+
+    def _open_interview_for_entry(entry: dict):
+        """Open the interview modal immediately for a given form entry."""
+        try:
+            ai = InclusiveCitizenAI(
+                entry["schema_file"],
+                user_language=state.language or "English",
+            )
+            _iv_ai[0] = ai
+            _iv_entry[0] = entry
+            _iv_filling[0] = True
+            _iv_confirming[0] = False
+            _interview_title.value = entry.get("display_name", "Interview")
+            _interview_progress_text.value = ""
+            _iv_question_text.value = "Loading questions..."
+            _iv_last_answer_text.value = ""
+            _iv_status_text.value = ""
+            interview_modal.open = True
+            page.update()
+            _run_in_thread(lambda: _iv_run_session(ai))
+        except Exception as exc:
+            _scan_status_snack.content = ft.Text(f"Could not start interview: {exc}")
+            _scan_status_snack.open = True
+            page.update()
+
+    def _on_scan_picked(e: ft.FilePickerResultEvent):
+        if not e.files:
+            return
+        pdf_path = e.files[0].path
+        if not pdf_path or not pdf_path.lower().endswith(".pdf"):
+            _scan_status_snack.content = ft.Text("Please select a PDF file.")
+            _scan_status_snack.open = True
+            page.update()
+            return
+
+        # Show a scanning indicator immediately
+        _scan_status_snack.content = ft.Text("Scanning PDF, please wait...")
+        _scan_status_snack.open = True
+        page.update()
+
+        def _process():
+            def _progress(msg: str):
+                _ui_call(lambda m=msg: (
+                    setattr(_scan_status_snack, 'content', ft.Text(m)),
+                    setattr(_scan_status_snack, 'open', True),
+                    page.update(),
+                ))
+
+            try:
+                from engine.insert_doc.document_manager import process_pdf
+                entry = process_pdf(
+                    source_path=pdf_path,
+                    on_progress=_progress,
+                    country=state.country or "Malaysia",
+                )
+                # Skip the list — go straight to the interview modal
+                _ui_call(lambda: _open_interview_for_entry(entry))
+            except Exception as exc:
+                _ui_call(lambda: (
+                    setattr(_scan_status_snack, 'content', ft.Text(f"Scan failed: {exc}")),
+                    setattr(_scan_status_snack, 'open', True),
+                    page.update(),
+                ))
+
+        _run_in_thread(_process)
+
+    scan_picker = ft.FilePicker(on_result=_on_scan_picked)
+
     page.overlay.append(file_picker)
     page.overlay.append(sig_modal)
     page.overlay.append(pdf_preview_modal)
+    page.overlay.append(interview_modal)
     page.overlay.append(save_picker)
     page.overlay.append(_success_overlay)
+    page.overlay.append(scan_picker)
     page.update()
 
     # ------------------------------------------------------------------ #

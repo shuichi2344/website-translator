@@ -45,18 +45,29 @@ def fill_pdf(
     if not os.path.exists(schema_path):
         raise FileNotFoundError(f"Schema not found: {schema_path}")
 
-    # Load schema → lookup by clean label
+    # Load schema → support flat list and sectioned {sections:[{fields:[]}]} formats
     with open(schema_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
-    fields = raw if isinstance(raw, list) else raw.get("fields") or raw.get("form_fields") or []
+
+    if isinstance(raw, list):
+        fields = raw
+    elif "sections" in raw:
+        fields = [f for sec in raw["sections"] for f in sec.get("fields", [])]
+    else:
+        fields = raw.get("fields") or raw.get("form_fields") or []
 
     schema_map: dict[str, dict] = {}
     for field in fields:
         if field.get("type") == "section_header":
             continue
-        lbl = _clean_label(field.get("original_label") or "")
+        # support both "label" (new format) and "original_label" (old format)
+        lbl = _clean_label(field.get("label") or field.get("original_label") or "")
         if lbl and lbl not in schema_map:
             schema_map[lbl] = field
+        # also index by field_id for row-suffixed keys like "full_name_1"
+        fid = (field.get("field_id") or "").strip()
+        if fid and fid not in schema_map:
+            schema_map[fid] = field
 
     doc = fitz.open(pdf_template_path)
     skipped = []
@@ -69,6 +80,10 @@ def fill_pdf(
         clean = _clean_label(resp_label)
         direct = (input_bboxes or {}).get(resp_label)
         field_entry = schema_map.get(clean)
+        # fallback: try matching by field_id slug (e.g. "Full Name_1" → "full_name_1")
+        if not field_entry:
+            slug = resp_label.replace(" ", "_").lower()
+            field_entry = schema_map.get(slug)
 
         if not direct and not field_entry:
             skipped.append(resp_label)
@@ -97,45 +112,21 @@ def fill_pdf(
 
         # Wrap text across available boxes
         remaining = str(value)
-        is_phone = any(w in resp_label.upper() for w in ("TELEFON", "PHONE", "TEL"))
 
         for box_idx, bbox in enumerate(bbox_list):
             if not remaining:
                 break
             x     = float(bbox.get("l", 0))
-            # Use "t" (top of box in BOTTOMLEFT coords = the input line position).
-            # "b" in the schema is the padded bottom edge and sits ~5pt above the
-            # actual drawn line, causing text to land in the row above.
             y_bl  = float(bbox.get("t", bbox.get("b", 0)))
-            y_top = page_height - y_bl - 4  # 2pt gap above the input line
+            y_top = page_height - y_bl - 4
             box_w = float(bbox.get("r", x + 200)) - x
 
-            if is_phone and len(bbox_list) == 2:
-                # Phone: first box gets area code (3 digits), second gets the rest
-                digits = remaining.replace("-", "").replace(" ", "")
-                if box_idx == 0:
-                    chunk = digits[:3]
-                    remaining = digits[3:]
-                else:
-                    chunk = remaining
-                    remaining = ""
-            elif is_phone and len(bbox_list) == 1:
-                # Only one box detected — manually place second part at l+100
-                digits = remaining.replace("-", "").replace(" ", "")
-                chunk = digits[:3]
-                remaining = digits[3:]
-                # Write second part at x+45 same y
-                if remaining:
-                    x2 = x + 45
-                    page.insert_text(fitz.Point(x2, y_top), remaining, fontsize=font_size, color=(0, 0, 0))
-                    print(f"[write_doc] '{resp_label}' p{page_num+1} x={x2:.1f} y={y_top:.1f} -> '{remaining}' (phone box 2)")
-                    remaining = ""
-            elif len(bbox_list) == 1:
-                # Single box — write full value, no truncation
+            if len(bbox_list) == 1:
+                # Single box — write full value as-is
                 chunk = remaining
                 remaining = ""
             else:
-                # Multi-box address: estimate chars by box width
+                # Multi-box: distribute text by box width
                 chars_per_box = max(1, int(box_w / (font_size * 0.42)))
                 chunk = remaining[:chars_per_box].rstrip()
                 remaining = remaining[len(chunk):].lstrip()
@@ -154,41 +145,76 @@ def fill_pdf(
             f"{base}_filled_{ts}.pdf"
         )
 
-    # Insert signature + auto-date (Hari / Bulan / Tahun)
+    # ── Signature ────────────────────────────────────────────────────────
     if signature_path and os.path.exists(signature_path):
-        sig_page = doc[0]
-        sig_ph = sig_page.rect.height
-        sig_rect = fitz.Rect(200.35, sig_ph - 316.13, 260.35, sig_ph - 296.13)
-        sig_page.insert_image(sig_rect, filename=signature_path, keep_proportion=False)
+        _SIG_KEYWORDS = {"signature", "sign", "tandatangan"}
+        sig_field = next(
+            (f for f in fields
+             if any(kw in (f.get("label") or f.get("original_label") or "").lower() for kw in _SIG_KEYWORDS)),
+            None,
+        )
+        if sig_field:
+            pg_num = (sig_field.get("page") or 1) - 1
+            sig_pg = doc[min(pg_num, len(doc) - 1)]
+            sig_ph = sig_pg.rect.height
+
+            # Prefer the label bbox (the space above the label line) for a
+            # larger, more visible signature area. Fall back to input_bbox.
+            ib = sig_field.get("bbox") or sig_field.get("input_bbox") or {}
+            x0 = float(ib.get("l", 60))
+            x1 = float(ib.get("r", 200))
+            # In BOTTOMLEFT: t is top, b is bottom. Convert to PyMuPDF top-left.
+            bl_t = float(ib.get("t", 320))
+            bl_b = float(ib.get("b", 290))
+            y0 = sig_ph - bl_t   # top in PyMuPDF coords
+            y1 = sig_ph - bl_b   # bottom in PyMuPDF coords
+            # Ensure minimum 30pt height for a visible signature
+            if y1 - y0 < 30:
+                y0 = y1 - 30
+            sig_rect = fitz.Rect(x0, y0, x1, y1)
+        else:
+            sig_pg   = doc[0]
+            sig_ph   = sig_pg.rect.height
+            sig_rect = fitz.Rect(60, sig_ph - 320, 200, sig_ph - 290)
+        sig_pg.insert_image(sig_rect, filename=signature_path, keep_proportion=False)
         print(f"[write_doc] Signature inserted at {sig_rect}")
 
-    # Auto-insert current date into Hari / Bulan / Tahun from schema coords
+    # ── Auto-date: Hari/Bulan/Tahun (Malay) + generic "date" fields ──────
     now = datetime.now()
-    date_fields = {
+    malay_parts = {
         "Hari":  now.strftime("%d"),
         "Bulan": now.strftime("%m"),
         "Tahun": now.strftime("%Y"),
     }
-    with open(schema_path, "r", encoding="utf-8") as _f:
-        _schema = json.load(_f)
-    _schema_list = _schema if isinstance(_schema, list) else (_schema.get("fields") or [])
-    _date_map = {f["original_label"]: f for f in _schema_list if f.get("original_label") in date_fields}
+    _DATE_KEYWORDS = {"date", "tarikh", "signed"}
 
-    for label, value in date_fields.items():
-        entry = _date_map.get(label)
-        if not entry:
-            print(f"[write_doc] Date field '{label}' not found in schema")
-            continue
-        ib = entry.get("input_bbox")
+    for field in fields:
+        orig = (field.get("label") or field.get("original_label") or "").strip()
+        ib   = field.get("input_bbox")
         if not ib:
-            print(f"[write_doc] Date field '{label}' has no input_bbox")
             continue
-        pg = doc[(entry.get("page") or 1) - 1]
+
+        pg_num = (field.get("page") or 1) - 1
+        if pg_num >= len(doc):
+            continue
+        pg = doc[pg_num]
         ph = pg.rect.height
-        x   = float(ib["l"])
-        y   = ph - float(ib["t"]) - 2
-        pg.insert_text(fitz.Point(x, y), value, fontsize=7, color=(0, 0, 0))
-        print(f"[write_doc] Date '{label}'={value} at x={x:.1f} y={y:.1f}")
+        x  = float(ib["l"])
+        y  = ph - float(ib["t"]) - 2
+
+        # Malay date parts
+        if orig in malay_parts:
+            pg.insert_text(fitz.Point(x, y), malay_parts[orig], fontsize=7, color=(0, 0, 0))
+            print(f"[write_doc] Date part '{orig}'={malay_parts[orig]} at x={x:.1f} y={y:.1f}")
+            continue
+
+        # Generic date field (e.g. "Date Signed", "Tarikh") — write full date
+        orig_lower = orig.lower()
+        _DATE_EXCLUDE = {"birth", "incident"}
+        if any(kw in orig_lower for kw in _DATE_KEYWORDS) and not any(ex in orig_lower for ex in _DATE_EXCLUDE):
+            date_str = now.strftime("%d/%m/%Y")
+            pg.insert_text(fitz.Point(x, y), date_str, fontsize=7, color=(0, 0, 0))
+            print(f"[write_doc] Auto-date '{orig}'={date_str} at x={x:.1f} y={y:.1f}")
 
     doc.save(output_path)
     doc.close()
@@ -198,48 +224,26 @@ def fill_pdf(
     print(f"[write_doc] Done — {written} fields → {output_path}")
     return output_path
 
-# if __name__ == "__main__":
-#     import tempfile
+if __name__ == "__main__":
+    # ── Apex Motor Vehicle Insurance Claim Form ───────────────────────────
+    test_responses = {
+        # Section 1 — Policyholder Details
+        "Full Name:":        "John Michael Doe",
+        "Policy Number:":    "APX-MV-2026-00123",
+        "Email Address:":    "john.doe@email.com",
+        "Phone Number:":     "0123456789",
 
-#     # Generate a test signature PNG using PyMuPDF (no Pillow needed)
-#     sig_tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-#     sig_path = sig_tmp.name
-#     sig_tmp.close()
+        # Section 2 — Accident / Incident Details
+        "Date of Incident:": "04/11/2026",
+        "Time:":             "14:30",
+        "Location of Incident:":  "Jalan Ampang, Kuala Lumpur",
+        "Statement of Facts:":    "Vehicle was rear-ended at a traffic light.",
+    }
 
-#     sig_doc = fitz.open()
-#     sig_page = sig_doc.new_page(width=180, height=80)
-#     # Draw a squiggle as test signature
-#     sig_page.draw_line(fitz.Point(10, 40), fitz.Point(40, 20), color=(0,0,0), width=2)
-#     sig_page.draw_line(fitz.Point(40, 20), fitz.Point(70, 55), color=(0,0,0), width=2)
-#     sig_page.draw_line(fitz.Point(70, 55), fitz.Point(100, 25), color=(0,0,0), width=2)
-#     sig_page.draw_line(fitz.Point(100, 25), fitz.Point(130, 50), color=(0,0,0), width=2)
-#     sig_page.draw_line(fitz.Point(130, 50), fitz.Point(160, 30), color=(0,0,0), width=2)
-#     sig_page.draw_line(fitz.Point(160, 30), fitz.Point(190, 45), color=(0,0,0), width=2)
-#     mat = fitz.Matrix(2, 2)
-#     pix = sig_page.get_pixmap(matrix=mat, alpha=False)
-#     pix.save(sig_path)
-#     sig_doc.close()
-#     print(f"Test signature saved → {sig_path}")
-
-#     test_responses = {
-#         "Nama (seperti di MyKad) A1": "Chook Yao Yu",
-#         "Nombor MyKad A2": "050407070897",
-#         "Nombor Telefon Rumah A3": "0312345678",
-#         "Nombor Telefon Bimbit A4": "0169448464",
-#         "Alamat Surat Menyurat A5": "BLK 3-18-2 Terubong Condo Jalan Bukit Gambir",
-#         "Poskod": "11060",
-#         "Bandar": "Ayer Itam",
-#         "Negeri": "Pulau Pinang",
-#         "Nama Bank Pemohon A6": "CIMB",
-#         "Nombor Akaun Bank Pemohon A7": "1234567890",
-#         "Alamat e-Mel A8": "test@gmail.com",
-#     }
-
-#     out = fill_pdf(
-#         responses=test_responses,
-#         schema_path="JSON_storage/lhdn_mystr_2026_updated.json",
-#         pdf_template_path="document_db/BK-02 (Borang Kemas Kini Maklumat Permohonan STR).pdf",
-#         output_path="document_db/test_output.pdf",
-#         signature_path=sig_path,
-#     )
-#     print(f"\n✅ Test PDF saved → {out}")
+    out = fill_pdf(
+        responses=test_responses,
+        schema_path="JSON_storage/Apex_Motor_Vehicle_Insurans_Claim_Form.json",
+        pdf_template_path="document_db/Motor_Vehicle_Insurans_Claim_Form.pdf",
+        output_path="document_db/Motor_Vehicle_Insurans_Claim_Form_filled.pdf",
+    )
+    print(f"\n✅ Filled PDF saved → {out}")

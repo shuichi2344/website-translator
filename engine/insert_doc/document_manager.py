@@ -1,35 +1,46 @@
-"""
-document_manager.py — Extract form fields and REAL input box coordinates from a PDF.
-
-Strategy:
-  1. Use Docling to extract text labels with their bbox.
-  2. Use PyMuPDF to extract all drawn rectangles/lines on each page.
-  3. For each label, find the nearest drawn rect/line to its right on the same
-     horizontal band — that IS the actual input box.
-  4. Store both label_bbox and input_bbox in the schema JSON.
-"""
-
 import json
 import os
+import re
 import fitz  # PyMuPDF
 from docling.document_converter import DocumentConverter
 
 # --- CONFIGURATION ---
-source_path      = "document_db/BK-02 (Borang Kemas Kini Maklumat Permohonan STR).pdf"
-schema_folder    = "JSON_storage"
-registry_file    = "map.json"
-new_form_id      = "lhdn_mystr_2026_updated"
-new_display_name = "MySTR 2026 (Updated)"
+source_path         = "document_db\\Motor_Vehicle_Insurans_Claim_Form.pdf"
+schema_folder       = "JSON_storage"
+new_form_id         = "Apex_Motor_Vehicle_Insurans_Claim_Form"
 new_schema_filename = f"{new_form_id}.json"
 
 os.makedirs(schema_folder, exist_ok=True)
 
-# ── 1. Extract drawn rectangles per page using PyMuPDF ───────────────────────
+# ── 1. Detect form_id and organization from PDF text ─────────────────────────
+def detect_form_meta(pdf_path: str) -> tuple[str, str]:
+    """
+    Scans the first page to extract organization name and build a form_id.
+    Falls back to filename-based defaults if nothing is found.
+    """
+    doc = fitz.open(pdf_path)
+    text = doc[0].get_text()
+    doc.close()
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    # Heuristic: first ALL-CAPS line is likely the org name
+    organization = "UNKNOWN ORGANIZATION"
+    for line in lines:
+        if line.isupper() and len(line) > 4:
+            organization = line
+            break
+
+    # Build a slug form_id from the PDF filename
+    base = os.path.splitext(os.path.basename(pdf_path))[0]
+    slug = re.sub(r"[^A-Z0-9]+", "-", base.upper()).strip("-")
+    form_id = f"{slug}-2026-V1"
+
+    return form_id, organization
+
+
+# ── 2. Extract drawn rectangles (input boxes) per page ───────────────────────
 def get_drawn_rects(pdf_path: str) -> dict[int, list[dict]]:
-    """
-    Returns {page_no (1-indexed): [{"l","t","r","b"}, ...]}
-    Extracts rectangles and horizontal lines from PDF drawing paths.
-    """
     doc = fitz.open(pdf_path)
     page_rects: dict[int, list[dict]] = {}
 
@@ -42,18 +53,13 @@ def get_drawn_rects(pdf_path: str) -> dict[int, list[dict]]:
             if r is None:
                 continue
 
-            # Convert PyMuPDF top-left coords → BOTTOMLEFT
-            l = r.x0
+            l  = r.x0
             r_ = r.x1
-            # PyMuPDF: y increases downward; convert to BOTTOMLEFT
-            b = page_h - r.y1
-            t = page_h - r.y0
+            b  = page_h - r.y1
+            t  = page_h - r.y0
+            w  = r_ - l
+            h  = t - b
 
-            w = r_ - l
-            h = t - b
-
-            # Only keep boxes wide enough to be input fields (>20pt wide)
-            # and not too tall (skip thick decorative borders)
             if w > 20 and h < 30:
                 rects.append({"l": l, "t": t, "r": r_, "b": b, "w": w, "h": h})
 
@@ -62,44 +68,43 @@ def get_drawn_rects(pdf_path: str) -> dict[int, list[dict]]:
     doc.close()
     return page_rects
 
-print("Extracting drawn rectangles from PDF...")
-drawn_rects = get_drawn_rects(source_path)
-print(f"Found rects per page: { {k: len(v) for k,v in drawn_rects.items()} }")
 
-# ── 2. Convert PDF with Docling ───────────────────────────────────────────────
-print("Converting PDF with Docling...")
-converter = DocumentConverter()
-result    = converter.convert(source_path)
-doc_json  = result.document.export_to_dict()
-
-# ── 3. Match each label to nearest input rect ─────────────────────────────────
+# ── 3. Match a label bbox to its input rect(s) ───────────────────────────────
 def find_input_rect(
     label_bbox: dict,
     page_no: int,
     drawn: dict[int, list[dict]],
-    y_tolerance: float = 6.0,
+    y_tolerance: float = 8.0,
 ) -> dict | None:
+    """Returns the single best input rect (same-row or nearest below)."""
+    results = find_all_input_rects(label_bbox, page_no, drawn, y_tolerance)
+    return results[0] if results else None
+
+
+def find_all_input_rects(
+    label_bbox: dict,
+    page_no: int,
+    drawn: dict[int, list[dict]],
+    y_tolerance: float = 8.0,
+) -> list[dict]:
     """
-    Find the drawn rect that is:
-      - On the same page
-      - Horizontally to the right of the label (rect.l >= label.r - 5)
-      - Vertically overlapping within y_tolerance
-      - Closest horizontally
+    Returns all input rects for a label:
+    - If a same-row rect exists, return just that one.
+    - Otherwise return every rect below the label that overlaps it horizontally,
+      sorted top-to-bottom (highest t first in BOTTOMLEFT coords).
     """
     candidates = drawn.get(page_no, [])
-    label_r = label_bbox.get("r", 0)
-    label_b = label_bbox.get("b", 0)
-    label_t = label_bbox.get("t", 0)
-    label_mid_y = (label_b + label_t) / 2
+    label_l     = label_bbox.get("l", 0)
+    label_r     = label_bbox.get("r", 0)
+    label_b     = label_bbox.get("b", 0)
+    label_mid_y = (label_b + label_bbox.get("t", 0)) / 2
 
-    best = None
+    # ── Strategy 1: same row ──────────────────────────────────────────────────
+    best      = None
     best_dist = float("inf")
-
     for rect in candidates:
-        # Must be to the right of the label
-        if rect["l"] < label_r - 5:
+        if rect["l"] < label_r - 10:
             continue
-        # Must overlap vertically
         rect_mid_y = (rect["b"] + rect["t"]) / 2
         if abs(rect_mid_y - label_mid_y) > y_tolerance:
             continue
@@ -108,10 +113,50 @@ def find_input_rect(
             best_dist = dist
             best = rect
 
-    return best
+    if best:
+        return [best]
 
-# ── 4. Build form fields ──────────────────────────────────────────────────────
-form_fields = []
+    # ── Strategy 2: all rows below the label (table column headers) ───────────
+    below = []
+    for rect in candidates:
+        if rect["r"] < label_l or rect["l"] > label_r:
+            continue
+        gap = label_b - rect["t"]
+        if gap < 0 or gap > 80.0:
+            continue
+        # Skip full-width zero-height decorative border lines
+        if rect["h"] == 0 and rect["w"] > 490:
+            continue
+        below.append(rect)
+
+    # Sort by t descending (closest row first)
+    below.sort(key=lambda r: r["t"], reverse=True)
+    return below
+
+
+# ── 4. Decide whether a docling text item is a section header ─────────────────
+def is_section_header(item: dict) -> bool:
+    return item.get("label") in ("section_header", "title")
+
+
+# ── EXECUTION ────────────────────────────────────────────────────────────────
+print(f"--- Processing: {source_path} ---")
+
+form_id, organization = detect_form_meta(source_path)
+print(f"Form ID:      {form_id}")
+print(f"Organization: {organization}")
+
+print("Extracting drawn rectangles...")
+drawn_rects = get_drawn_rects(source_path)
+
+print("Converting PDF with Docling (this may take a moment)...")
+converter = DocumentConverter()
+result    = converter.convert(source_path)
+doc_json  = result.document.export_to_dict()
+
+# ── 5. Build sections with nested fields ─────────────────────────────────────
+sections: list[dict] = []
+current_section: dict | None = None
 
 for item in doc_json.get("texts", []):
     text_content = item.get("text", "").strip()
@@ -129,61 +174,79 @@ for item in doc_json.get("texts", []):
     if not bbox or not page_no:
         continue
 
-    input_rect = find_input_rect(bbox, page_no, drawn_rects)
-
-    if input_rect:
-        input_bbox = {
-            "l": round(input_rect["l"] + 10, 2),  # padding from left edge
-            "t": round(input_rect["t"], 2),
-            "r": round(input_rect["r"], 2),
-            "b": round(input_rect["b"] + 2, 2),   # padding from bottom edge
-            "coord_origin": "BOTTOMLEFT",
+    # Section headers start a new section bucket
+    if is_section_header(item):
+        current_section = {
+            "section_name": text_content,
+            "fields": []
         }
-    else:
+        sections.append(current_section)
+        continue
+
+    # Everything else is a field label — find its input box(es)
+    input_rects = find_all_input_rects(bbox, page_no, drawn_rects)
+
+    # If no section has been created yet, create a default one
+    if current_section is None:
+        current_section = {"section_name": "GENERAL", "fields": []}
+        sections.append(current_section)
+
+    label_bbox = {
+        "l": round(bbox.get("l", 0), 3),
+        "t": round(bbox.get("t", 0), 3),
+        "r": round(bbox.get("r", 0), 3),
+        "b": round(bbox.get("b", 0), 3),
+        "coord_origin": "BOTTOMLEFT",
+    }
+
+    # For signature and date-signed fields, derive input area 10pts above label
+    _ABOVE_LABELS = {"policyowner signature", "date signed", "authorized signature", "date"}
+
+    if not input_rects and text_content.lower() in _ABOVE_LABELS:
+        input_rects = [{
+            "l": bbox.get("l", 0),
+            "t": bbox.get("t", 0) + 10,
+            "r": bbox.get("r", 0),
+            "b": bbox.get("t", 0),
+        }]
+
+    # Emit one field per detected input row (table columns get one per row)
+    base_id = text_content.replace(" ", "_").lower()[:28]
+    for row_idx, input_rect in enumerate(input_rects or [None]):
         input_bbox = None
+        if input_rect:
+            input_bbox = {
+                "l": round(input_rect["l"] + 5, 2),
+                "t": round(input_rect["t"], 2),
+                "r": round(input_rect["r"], 2),
+                "b": round(input_rect["b"] + 2, 2),
+                "coord_origin": "BOTTOMLEFT",
+            }
 
-    form_fields.append({
-        "field_id": (
-            text_content.split()[-1]
-            if text_content[-1].isdigit()
-            else text_content[:5]
-        ),
-        "original_label": text_content,
-        "type": item.get("label"),
-        "status": "pending",
-        "bbox": bbox,
-        "input_bbox": input_bbox,
-        "page": page_no,
-    })
+        suffix = f"_{row_idx + 1}" if len(input_rects or []) > 1 else ""
+        field = {
+            "field_id": f"{base_id}{suffix}",
+            "label": text_content,
+            "row": row_idx + 1 if len(input_rects or []) > 1 else None,
+            "input_bbox": input_bbox,
+            "label_bbox": label_bbox,
+        }
+        # Drop None row key for single-row fields
+        if field["row"] is None:
+            del field["row"]
 
-matched = sum(1 for f in form_fields if f["input_bbox"] is not None)
-print(f"Matched {matched}/{len(form_fields)} fields to input boxes")
+        current_section["fields"].append(field)
 
-# ── 5. Save schema ────────────────────────────────────────────────────────────
+# ── 6. Assemble final schema ──────────────────────────────────────────────────
+schema = {
+    "form_id": form_id,
+    "organization": organization,
+    "sections": sections,
+}
+
 schema_path = os.path.join(schema_folder, new_schema_filename)
 with open(schema_path, "w", encoding="utf-8") as f:
-    json.dump(form_fields, f, indent=2)
-print(f"✅ Schema saved → {schema_path}")
+    json.dump(schema, f, indent=2)
 
-# ── 6. Update map.json registry ───────────────────────────────────────────────
-if os.path.exists(registry_file):
-    with open(registry_file, "r") as f:
-        registry = json.load(f)
-else:
-    registry = {"available_forms": []}
-
-exists = any(form["id"] == new_form_id for form in registry["available_forms"])
-if not exists:
-    registry["available_forms"].append({
-        "id": new_form_id,
-        "display_name": new_display_name,
-        "schema_file": schema_path,
-        "pdf_file": source_path,
-        "country": "Malaysia",
-        "form_type": "government",
-    })
-    with open(registry_file, "w") as f:
-        json.dump(registry, f, indent=2)
-    print(f"✅ Registry updated → {registry_file}")
-else:
-    print(f"ℹ️  '{new_form_id}' already in registry.")
+print(f"\n✅ Processing Complete!")
+print(f"📄 Schema saved to: {schema_path}")
