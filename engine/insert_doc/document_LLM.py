@@ -377,6 +377,13 @@ class InclusiveCitizenAI:
     def get_final_json(self) -> str:
         return json.dumps(self.responses, indent=2, ensure_ascii=False)
 
+    def get_tts_summary(self) -> str:
+        """Return a short human-readable summary of collected responses."""
+        if not self.responses:
+            return "No information collected."
+        lines = [f"{k} {v}" for k, v in self.responses.items() if v and v != "-"]
+        return ". ".join(lines[:10])  # cap at 10 fields to keep it speakable
+
     # ------------------------------------------------------------------
     @property
     def progress(self) -> tuple[int, int]:

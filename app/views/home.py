@@ -2473,6 +2473,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         ),
     )
 
+    _iv_help_icon = ft.Icon(ft.icons.HELP_OUTLINE_ROUNDED, color=accent, size=32)
+
     _iv_question_card = ft.Container(
         content=ft.Stack(
             [
@@ -2480,7 +2482,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 ft.Container(
                     content=ft.Column(
                         [
-                            ft.Icon(ft.icons.HELP_OUTLINE_ROUNDED, color=accent, size=32),
+                            _iv_help_icon,
                             _iv_question_text,
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -2587,6 +2589,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def _iv_set_question(text: str):
         """Update the centered question card and clear the previous answer."""
         _iv_question_text.value = text
+        _iv_question_text.size = state.font_sp() + 4
+        _iv_help_icon.visible = True
         _iv_question_card.border = ft.border.all(2, accent)
         _iv_last_answer_text.value = ""
         _iv_status_text.value = ""
@@ -2636,6 +2640,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         _iv_confirming[0] = False
         _iv_sig_path[0] = None
         _iv_question_text.value = ""
+        _iv_question_text.size = state.font_sp() + 4
+        _iv_help_icon.visible = True
         _iv_last_answer_text.value = ""
         _iv_status_text.value = ""
         _interview_progress_text.value = ""
@@ -2656,11 +2662,13 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         _iv_filling[0] = False
                         _iv_confirming[0] = True
                         _iv_question_text.value = tts_summary
+                        _iv_question_text.size = state.font_sp() - 1
                         _iv_question_card.border = ft.border.all(2, ft.colors.GREEN_400)
-                        _iv_last_answer_text.value = ""
+                        _iv_last_answer_text.value = "Type 'yes' to confirm or 'no' to discard."
                         _iv_status_text.value = ""
                         _interview_field.value = ""
-                        _interview_progress_text.value = "Type 'yes' to confirm or 'no' to discard."
+                        _interview_progress_text.value = ""
+                        _iv_help_icon.visible = False
                         page.update()
                     _ui_call(_done)
                     return
@@ -2740,8 +2748,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
                 def _ok():
                     _pdf_out_path[0] = out
-                    # Store schema path for cleanup after download
-                    _iv_schema_to_delete[0] = schema_path
+                    # Only delete schema if it was generated from a user-uploaded PDF
+                    if entry and entry.get("_temp_schema"):
+                        _iv_schema_to_delete[0] = schema_path
                     pdf_preview_modal.content.controls[1].value = out
                     pdf_preview_modal.open = True
                     _iv_close_modal()
@@ -3174,6 +3183,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             _iv_lang_screen.visible = True
             _iv_qa_screen.visible = False
             _iv_question_text.value = ""
+            _iv_question_text.size = state.font_sp() + 4
+            _iv_help_icon.visible = True
             _iv_last_answer_text.value = ""
             _iv_status_text.value = ""
             interview_modal.open = True

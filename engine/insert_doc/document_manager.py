@@ -140,113 +140,121 @@ def is_section_header(item: dict) -> bool:
 
 
 # ── EXECUTION ────────────────────────────────────────────────────────────────
-print(f"--- Processing: {source_path} ---")
 
-form_id, organization = detect_form_meta(source_path)
-print(f"Form ID:      {form_id}")
-print(f"Organization: {organization}")
+def process_pdf(source_path: str, on_progress=None, country: str = "Malaysia") -> dict:
+    """
+    Process a PDF file and return an entry dict for use with InclusiveCitizenAI.
+    The returned dict includes '_temp_schema': True to signal the schema file
+    was generated from a user-uploaded PDF and should be deleted after use.
+    """
+    import tempfile, uuid
 
-print("Extracting drawn rectangles...")
-drawn_rects = get_drawn_rects(source_path)
+    def _progress(msg: str):
+        if on_progress:
+            on_progress(msg)
 
-print("Converting PDF with Docling (this may take a moment)...")
-converter = DocumentConverter()
-result    = converter.convert(source_path)
-doc_json  = result.document.export_to_dict()
+    _progress("Detecting form metadata...")
+    form_id, organization = detect_form_meta(source_path)
 
-# ── 5. Build sections with nested fields ─────────────────────────────────────
-sections: list[dict] = []
-current_section: dict | None = None
+    _progress("Extracting input fields...")
+    drawn_rects = get_drawn_rects(source_path)
 
-for item in doc_json.get("texts", []):
-    text_content = item.get("text", "").strip()
-    if len(text_content) <= 2:
-        continue
+    _progress("Analysing document structure (this may take a moment)...")
+    converter = DocumentConverter()
+    result    = converter.convert(source_path)
+    doc_json  = result.document.export_to_dict()
 
-    prov_list = item.get("prov", [])
-    if not prov_list:
-        continue
+    sections: list[dict] = []
+    current_section: dict | None = None
 
-    prov    = prov_list[0]
-    bbox    = prov.get("bbox")
-    page_no = prov.get("page_no")
+    for item in doc_json.get("texts", []):
+        text_content = item.get("text", "").strip()
+        if len(text_content) <= 2:
+            continue
+        prov_list = item.get("prov", [])
+        if not prov_list:
+            continue
+        prov    = prov_list[0]
+        bbox    = prov.get("bbox")
+        page_no = prov.get("page_no")
+        if not bbox or not page_no:
+            continue
 
-    if not bbox or not page_no:
-        continue
+        if is_section_header(item):
+            current_section = {"section_name": text_content, "fields": []}
+            sections.append(current_section)
+            continue
 
-    # Section headers start a new section bucket
-    if is_section_header(item):
-        current_section = {
-            "section_name": text_content,
-            "fields": []
+        input_rects = find_all_input_rects(bbox, page_no, drawn_rects)
+        if current_section is None:
+            current_section = {"section_name": "GENERAL", "fields": []}
+            sections.append(current_section)
+
+        label_bbox = {
+            "l": round(bbox.get("l", 0), 3),
+            "t": round(bbox.get("t", 0), 3),
+            "r": round(bbox.get("r", 0), 3),
+            "b": round(bbox.get("b", 0), 3),
+            "coord_origin": "BOTTOMLEFT",
         }
-        sections.append(current_section)
-        continue
 
-    # Everything else is a field label — find its input box(es)
-    input_rects = find_all_input_rects(bbox, page_no, drawn_rects)
+        _ABOVE_LABELS = {"policyowner signature", "date signed", "authorized signature", "date"}
+        if not input_rects and text_content.lower() in _ABOVE_LABELS:
+            input_rects = [{
+                "l": bbox.get("l", 0),
+                "t": bbox.get("t", 0) + 10,
+                "r": bbox.get("r", 0),
+                "b": bbox.get("t", 0),
+            }]
 
-    # If no section has been created yet, create a default one
-    if current_section is None:
-        current_section = {"section_name": "GENERAL", "fields": []}
-        sections.append(current_section)
+        base_id = text_content.replace(" ", "_").lower()[:28]
+        for row_idx, input_rect in enumerate(input_rects or [None]):
+            input_bbox = None
+            if input_rect:
+                input_bbox = {
+                    "l": round(input_rect["l"] + 5, 2),
+                    "t": round(input_rect["t"], 2),
+                    "r": round(input_rect["r"], 2),
+                    "b": round(input_rect["b"] + 2, 2),
+                    "coord_origin": "BOTTOMLEFT",
+                }
+            suffix = f"_{row_idx + 1}" if len(input_rects or []) > 1 else ""
+            field = {
+                "field_id": f"{base_id}{suffix}",
+                "label": text_content,
+                "row": row_idx + 1 if len(input_rects or []) > 1 else None,
+                "input_bbox": input_bbox,
+                "label_bbox": label_bbox,
+            }
+            if field["row"] is None:
+                del field["row"]
+            current_section["fields"].append(field)
 
-    label_bbox = {
-        "l": round(bbox.get("l", 0), 3),
-        "t": round(bbox.get("t", 0), 3),
-        "r": round(bbox.get("r", 0), 3),
-        "b": round(bbox.get("b", 0), 3),
-        "coord_origin": "BOTTOMLEFT",
+    schema = {"form_id": form_id, "organization": organization, "sections": sections}
+
+    # Save to a unique temp file in JSON_storage
+    os.makedirs(schema_folder, exist_ok=True)
+    uid = uuid.uuid4().hex[:8]
+    schema_filename = f"_temp_{uid}.json"
+    schema_path = os.path.join(schema_folder, schema_filename)
+    with open(schema_path, "w", encoding="utf-8") as f:
+        json.dump(schema, f, indent=2)
+
+    _progress(f"Schema saved.")
+
+    display_name = organization.title() if organization != "UNKNOWN ORGANIZATION" else os.path.splitext(os.path.basename(source_path))[0]
+    return {
+        "id": form_id,
+        "display_name": display_name,
+        "schema_file": schema_path,
+        "pdf_file": source_path,
+        "country": country,
+        "form_type": "scanned",
+        "_temp_schema": True,   # signals this JSON should be deleted after use
     }
 
-    # For signature and date-signed fields, derive input area 10pts above label
-    _ABOVE_LABELS = {"policyowner signature", "date signed", "authorized signature", "date"}
 
-    if not input_rects and text_content.lower() in _ABOVE_LABELS:
-        input_rects = [{
-            "l": bbox.get("l", 0),
-            "t": bbox.get("t", 0) + 10,
-            "r": bbox.get("r", 0),
-            "b": bbox.get("t", 0),
-        }]
-
-    # Emit one field per detected input row (table columns get one per row)
-    base_id = text_content.replace(" ", "_").lower()[:28]
-    for row_idx, input_rect in enumerate(input_rects or [None]):
-        input_bbox = None
-        if input_rect:
-            input_bbox = {
-                "l": round(input_rect["l"] + 5, 2),
-                "t": round(input_rect["t"], 2),
-                "r": round(input_rect["r"], 2),
-                "b": round(input_rect["b"] + 2, 2),
-                "coord_origin": "BOTTOMLEFT",
-            }
-
-        suffix = f"_{row_idx + 1}" if len(input_rects or []) > 1 else ""
-        field = {
-            "field_id": f"{base_id}{suffix}",
-            "label": text_content,
-            "row": row_idx + 1 if len(input_rects or []) > 1 else None,
-            "input_bbox": input_bbox,
-            "label_bbox": label_bbox,
-        }
-        # Drop None row key for single-row fields
-        if field["row"] is None:
-            del field["row"]
-
-        current_section["fields"].append(field)
-
-# ── 6. Assemble final schema ──────────────────────────────────────────────────
-schema = {
-    "form_id": form_id,
-    "organization": organization,
-    "sections": sections,
-}
-
-schema_path = os.path.join(schema_folder, new_schema_filename)
-with open(schema_path, "w", encoding="utf-8") as f:
-    json.dump(schema, f, indent=2)
-
-print(f"\n✅ Processing Complete!")
-print(f"📄 Schema saved to: {schema_path}")
+if __name__ == "__main__":
+    _src = "document_db\\Motor_Vehicle_Insurans_Claim_Form.pdf"
+    entry = process_pdf(_src)
+    print(f"\n✅ Done: {entry['schema_file']}")
