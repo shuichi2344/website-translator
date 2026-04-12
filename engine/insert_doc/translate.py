@@ -41,36 +41,57 @@ def translate(sentence: str, language: str) -> str:
     import re as _re
 
     prompt = (
-        f"Translate the following question into {language} for text-to-speech.\n"
-        f"Rules:\n"
-        f"- Output ONLY the translated question in a single sentence.\n"
-        f"- No parentheses, brackets, slashes, or special characters.\n"
-        f"- Short, natural, spoken — as if asking a person face to face.\n"
-        f"- Remove any technical codes or form field references.\n\n"
-        f"Question: {sentence}\n\n"
-        f"Translation:"
+        f"<|im_start|>system\n"
+        f"You are a translator. Output ONLY the translated sentence. No explanations, no notes, no language names.\n"
+        f"<|im_end|>\n"
+        f"<|im_start|>user\n"
+        f"Translate this question into {language}. Reply with the translation only:\n"
+        f"{sentence}\n"
+        f"<|im_end|>\n"
+        f"<|im_start|>assistant\n"
     )
+
+    # Patterns that indicate leaked meta-commentary from the model
+    _LEAK_PATTERNS = [
+        r'\bdalam bahasa\b.*',
+        r'\bin\s+\w+\s+language\b.*',
+        r'\btranslation\b.*',
+        r'\bask\w*\s+directly\b.*',
+        r'\bbertanya\s+secara\s+langsung\b.*',
+        r'\bsecara\s+langsung\b.*',
+    ]
 
     try:
         llm = _get_llm()
         output = llm(
             prompt,
-            max_tokens=128,
-            temperature=0.2,
-            stop=["\n\n", "Question:", "Translation:"],
+            max_tokens=80,
+            temperature=0.1,
+            stop=["\n", "<|im_end|>", "Question:", "Translation:", "Note:"],
         )
         result = output["choices"][0]["text"].strip()
-        # Strip any residual brackets, parens, slashes
-        result = _re.sub(r'[\(\)\[\]\/\\]+', '', result).strip()
-        # Remove duplicate sentences (model sometimes echoes the translation twice)
-        sentences = [s.strip() for s in _re.split(r'[。？！.?!]', result) if s.strip()]
-        if len(sentences) >= 2 and sentences[0] == sentences[1]:
-            result = sentences[0]
-        elif result:
-            # Simpler dedup: if the string is an exact repeat of its first half
-            mid = len(result) // 2
-            if result[:mid].strip() == result[mid:].strip():
-                result = result[:mid].strip()
+
+        # Remove leaked meta-commentary (e.g. "dalam bahasa Melayu", "in Malay language")
+        for pattern in _LEAK_PATTERNS:
+            result = _re.sub(pattern, '', result, flags=_re.IGNORECASE).strip()
+
+        # Strip residual brackets, parens, slashes (including fullwidth Chinese variants)
+        result = _re.sub(r'[\(\)\[\]\/\\（）【】]+', '', result).strip()
+        result = _re.sub(r'[（(][^）)]*[）)]', '', result).strip()  # remove parenthetical phrases
+
+        # Collapse repeated characters (e.g. "222222..." hallucination)
+        result = _re.sub(r'(.)\1{4,}', r'\1', result).strip()
+
+        # Take only the first sentence if multiple leaked through (handles CJK punctuation too)
+        first = _re.split(r'(?<=[.?!？。！])\s*', result)[0].strip()
+        if first:
+            result = first
+
+        # Dedup: if the string is an exact repeat of its first half
+        mid = len(result) // 2
+        if mid > 0 and result[:mid].strip() == result[mid:].strip():
+            result = result[:mid].strip()
+
         return result if result else sentence
     except Exception as e:
         print(f"[translate] Sailor2 failed ({type(e).__name__}: {e})")

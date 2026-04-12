@@ -3,6 +3,7 @@ import re
 import threading
 
 import ollama
+from engine.insert_doc.translate import translate as _sailor2_translate
 
 _OLLAMA_MODEL = "llama3.2"
 
@@ -153,26 +154,10 @@ class InclusiveCitizenAI:
         self.user_language = new_language
 
     def _translate_question(self, question: str) -> str:
-        """Translate *question* into user_language using llama3.2 directly."""
+        """Translate *question* into user_language using Sailor2 from translate.py."""
         if not question or self.user_language.lower() in ("english", "en"):
             return question
-        try:
-            prompt = (
-                f"Translate into {self.user_language}. Output the translation only, nothing else.\n\n"
-                f"{question}"
-            )
-            result = _call_llm(prompt, max_tokens=80).strip()
-            # Strip leaked symbols or instruction fragments
-            result = re.sub(r'[\(\)\[\]\/\\]+', '', result).strip()
-            result = re.split(r'[;；]', result)[0].strip()
-            # Deduplicate if model echoes twice
-            mid = len(result) // 2
-            if mid > 0 and result[:mid].strip() == result[mid:].strip():
-                result = result[:mid].strip()
-            return result if result else question
-        except Exception as e:
-            print(f"[LLM] Translation failed ({e}) — returning original")
-            return question
+        return _sailor2_translate(question, self.user_language)
 
     def _should_skip_current_section(self) -> bool:
         return self._current_section in self._skipped_sections
@@ -431,25 +416,22 @@ class InclusiveCitizenAI:
 
 # ---------------------------------------------------------------------------
 # if __name__ == "__main__":
-#     import sys
-#     schema_path = sys.argv[1] if len(sys.argv) > 1 else "JSON_storage/Apex_Motor_Vehicle_Insurans_Claim_Form.json"
-#     ai = InclusiveCitizenAI(schema_path, user_language="English")
+#     schema_path = "JSON_storage/Apex_Motor_Vehicle_Insurans_Claim_Form.json"
+#     ai = InclusiveCitizenAI(schema_path, user_language="Tamil")
 
-#     print(f"--- Inclusive Citizen AI | {schema_path} ---")
+#     print(f"--- Generating questions for: {schema_path} (language: {ai.user_language}) ---\n")
+#     questions = []
+
 #     while True:
 #         result = ai.generate_question()
 #         if result is None:
-#             print("\n✅ Form complete!")
-#             print(ai.get_final_json())
 #             break
 #         if result.startswith("SECTION_CONFIRM:"):
-#             section_name = result.split(":", 1)[1]
-#             ans = input(f"\nSection '{section_name}' — do you have info? (yes/no): ").strip()
-#             ai.confirm_section(ans)
+#             ai.confirm_section("yes")
 #             continue
-#         answered, total = ai.progress
-#         print(f"\n[{answered + 1}/{total}] {result}")
-#         user_input = input("Your answer: ").strip()
-#         extracted = ai.extract_and_save(user_input)
-#         if extracted == "RETRY":
-#             print("Could not extract — please try again.")
+#         questions.append(result)
+#         ai.current_field_index += 1
+
+#     print(f"Total questions generated: {len(questions)}\n")
+#     for i, q in enumerate(questions, 1):
+#         print(f"[{i}] {q}")
