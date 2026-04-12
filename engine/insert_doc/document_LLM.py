@@ -152,6 +152,28 @@ class InclusiveCitizenAI:
     def set_language(self, new_language: str):
         self.user_language = new_language
 
+    def _translate_question(self, question: str) -> str:
+        """Translate *question* into user_language using llama3.2 directly."""
+        if not question or self.user_language.lower() in ("english", "en"):
+            return question
+        try:
+            prompt = (
+                f"Translate into {self.user_language}. Output the translation only, nothing else.\n\n"
+                f"{question}"
+            )
+            result = _call_llm(prompt, max_tokens=80).strip()
+            # Strip leaked symbols or instruction fragments
+            result = re.sub(r'[\(\)\[\]\/\\]+', '', result).strip()
+            result = re.split(r'[;；]', result)[0].strip()
+            # Deduplicate if model echoes twice
+            mid = len(result) // 2
+            if mid > 0 and result[:mid].strip() == result[mid:].strip():
+                result = result[:mid].strip()
+            return result if result else question
+        except Exception as e:
+            print(f"[LLM] Translation failed ({e}) — returning original")
+            return question
+
     def _should_skip_current_section(self) -> bool:
         return self._current_section in self._skipped_sections
 
@@ -174,7 +196,7 @@ class InclusiveCitizenAI:
                 for opt in OPTIONAL_SECTIONS:
                     if opt in norm and norm not in self._skipped_sections:
                         confirm_q = self._ask_section_confirm(label)
-                        return f"SECTION_CONFIRM:{confirm_q}"
+                        return f"SECTION_CONFIRM:{self._translate_question(confirm_q)}"
                 continue
 
             # New format: track section from _section_name
@@ -189,7 +211,7 @@ class InclusiveCitizenAI:
                 for opt in OPTIONAL_SECTIONS:
                     if opt in section_norm and section_norm not in self._skipped_sections:
                         confirm_q = self._ask_section_confirm(section_name)
-                        return f"SECTION_CONFIRM:{confirm_q}"
+                        return f"SECTION_CONFIRM:{self._translate_question(confirm_q)}"
 
             if self._should_skip_current_section():
                 self.current_field_index += 1
@@ -224,7 +246,7 @@ class InclusiveCitizenAI:
                 section=field.get("_section_name", ""),
                 row=field.get("row"),
             )
-            return question
+            return self._translate_question(question)
 
         return None
 
@@ -239,9 +261,8 @@ class InclusiveCitizenAI:
     def _ask_section_confirm(self, section_label: str) -> str:
         prompt = (
             f"You are a friendly voice assistant helping someone fill in a form.\n"
-            f"The form has an optional section called: \"{section_label}\"\n"
-            f"User's language: {self.user_language}\n\n"
-            f"Write a single natural yes/no question asking if the user has info for this section.\n"
+            f"The form has an optional section called: \"{section_label}\"\n\n"
+            f"Write a single natural yes/no question in English asking if the user has info for this section.\n"
             f"RULES: under 15 words, plain text only, no special characters.\n"
             f"Return ONLY the question.\n"
         )
@@ -278,10 +299,9 @@ class InclusiveCitizenAI:
         prompt = (
             f"You are a focused voice assistant collecting form data.\n"
             f"Field: \"{label}{line_hint}\"\n"
-            f"Language: {self.user_language}\n"
             f"{section_hint}\n"
             f"{relationship}\n\n"
-            f"Write a single spoken question for this field.\n"
+            f"Write a single spoken question in English for this field.\n"
             f"RULES: under 15 words, plain text only, no special characters, no codes.\n"
             f"The question must clearly match the exact field — do not confuse date with time.\n"
             f"Return ONLY the question.\n\n"
@@ -324,9 +344,12 @@ class InclusiveCitizenAI:
             self.current_field_index += 1
             return value
 
-        # If the input is short (≤ 60 chars) and doesn't look like a sentence
-        # describing something, treat it as the direct value — skip the LLM.
-        is_direct = len(stripped) <= 60 and not re.search(r'\b(is|are|was|were|my|the|it|i)\b', stripped, re.IGNORECASE)
+        # Treat any input ≤ 80 chars as a direct value — covers names, IDs,
+        # addresses, and short answers in any language including CJK scripts.
+        is_direct = len(stripped) <= 80 and not re.search(
+            r'\b(is|are|was|were|my|the|it|i am|i have)\b',
+            stripped, re.IGNORECASE
+        )
         if is_direct:
             value = stripped
             print(f"[extract] field='{label}' direct -> '{value}'")
@@ -337,8 +360,9 @@ class InclusiveCitizenAI:
 
         prompt = (
             f"Extract the value for field: {label}\n"
-            f"RULES: extract exactly as given, no summarising, no translation.\n"
-            f"Output ONLY the value. If no relevant value, output RETRY.\n\n"
+            f"The user may answer in any language — extract the value exactly as given.\n"
+            f"RULES: no summarising, no translation, no explanation.\n"
+            f"Output ONLY the extracted value. If no relevant value found, output RETRY.\n\n"
             f"User input: {user_text}\n"
             f"Output:"
         )
@@ -405,28 +429,27 @@ class InclusiveCitizenAI:
 
         return answered, total
 
-
 # ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    import sys
-    schema_path = sys.argv[1] if len(sys.argv) > 1 else "JSON_storage/Apex_Motor_Vehicle_Insurans_Claim_Form.json"
-    ai = InclusiveCitizenAI(schema_path, user_language="English")
+# if __name__ == "__main__":
+#     import sys
+#     schema_path = sys.argv[1] if len(sys.argv) > 1 else "JSON_storage/Apex_Motor_Vehicle_Insurans_Claim_Form.json"
+#     ai = InclusiveCitizenAI(schema_path, user_language="English")
 
-    print(f"--- Inclusive Citizen AI | {schema_path} ---")
-    while True:
-        result = ai.generate_question()
-        if result is None:
-            print("\n✅ Form complete!")
-            print(ai.get_final_json())
-            break
-        if result.startswith("SECTION_CONFIRM:"):
-            section_name = result.split(":", 1)[1]
-            ans = input(f"\nSection '{section_name}' — do you have info? (yes/no): ").strip()
-            ai.confirm_section(ans)
-            continue
-        answered, total = ai.progress
-        print(f"\n[{answered + 1}/{total}] {result}")
-        user_input = input("Your answer: ").strip()
-        extracted = ai.extract_and_save(user_input)
-        if extracted == "RETRY":
-            print("Could not extract — please try again.")
+#     print(f"--- Inclusive Citizen AI | {schema_path} ---")
+#     while True:
+#         result = ai.generate_question()
+#         if result is None:
+#             print("\n✅ Form complete!")
+#             print(ai.get_final_json())
+#             break
+#         if result.startswith("SECTION_CONFIRM:"):
+#             section_name = result.split(":", 1)[1]
+#             ans = input(f"\nSection '{section_name}' — do you have info? (yes/no): ").strip()
+#             ai.confirm_section(ans)
+#             continue
+#         answered, total = ai.progress
+#         print(f"\n[{answered + 1}/{total}] {result}")
+#         user_input = input("Your answer: ").strip()
+#         extracted = ai.extract_and_save(user_input)
+#         if extracted == "RETRY":
+#             print("Could not extract — please try again.")

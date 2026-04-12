@@ -224,26 +224,26 @@ def fill_pdf(
     print(f"[write_doc] Done — {written} fields → {output_path}")
     return output_path
 
-if __name__ == "__main__":
-    # ── Apex Motor Vehicle Insurance Claim Form ───────────────────────────
-    test_responses = {
-        # Section 1 — Policyholder Details
-        "Full Name:":        "John Michael Doe",
-        "Policy Number:":    "APX-MV-2026-00123",
-        "Email Address:":    "john.doe@email.com",
-        "Phone Number:":     "0123456789",
+# if __name__ == "__main__":
+#     # ── Apex Motor Vehicle Insurance Claim Form ───────────────────────────
+#     test_responses = {
+#         # Section 1 — Policyholder Details
+#         "Full Name:":        "John Michael Doe",
+#         "Policy Number:":    "APX-MV-2026-00123",
+#         "Email Address:":    "john.doe@email.com",
+#         "Phone Number:":     "0123456789",
 
-        # Section 2 — Accident / Incident Details
-        "Date of Incident:": "04/11/2026",
-        "Time:":             "14:30",
-        "Location of Incident:":  "Jalan Ampang, Kuala Lumpur",
-        "Statement of Facts:":    "Vehicle was rear-ended at a traffic light.",
-    }
+#         # Section 2 — Accident / Incident Details
+#         "Date of Incident:": "04/11/2026",
+#         "Time:":             "14:30",
+#         "Location of Incident:":  "Jalan Ampang, Kuala Lumpur",
+#         "Statement of Facts:":    "Vehicle was rear-ended at a traffic light.",
+#     }
 
-    out = fill_pdf(
-        responses=test_responses,
-        schema_path="JSON_storage/Apex_Motor_Vehicle_Insurans_Claim_Form.json",
-        pdf_template_path="document_db/Motor_Vehicle_Insurans_Claim_Form.pdf",
-        output_path="document_db/Motor_Vehicle_Insurans_Claim_Form_filled.pdf",
-    )
-    print(f"\n✅ Filled PDF saved → {out}")
+#     out = fill_pdf(
+#         responses=test_responses,
+#         schema_path="JSON_storage/Apex_Motor_Vehicle_Insurans_Claim_Form.json",
+#         pdf_template_path="document_db/Motor_Vehicle_Insurans_Claim_Form.pdf",
+#         output_path="document_db/Motor_Vehicle_Insurans_Claim_Form_filled.pdf",
+#     )
+#     print(f"\n✅ Filled PDF saved → {out}")

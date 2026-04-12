@@ -556,12 +556,16 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         visible=False,
     )
 
-    _form_grid = ft.GridView(
-        runs_count=2,
-        max_extent=180,
-        child_aspect_ratio=1.1,
-        spacing=10,
-        run_spacing=10,
+    _FORM_TYPE_ICONS = {
+        "government": ft.icons.ACCOUNT_BALANCE_OUTLINED,
+        "insurance":  ft.icons.HEALTH_AND_SAFETY_OUTLINED,
+        "healthcare": ft.icons.LOCAL_HOSPITAL_OUTLINED,
+        "rental":     ft.icons.HOME_OUTLINED,
+        "other":      ft.icons.DESCRIPTION_OUTLINED,
+    }
+
+    _form_grid = ft.Column(
+        spacing=16,
         expand=False,
     )
 
@@ -579,24 +583,72 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
     )
 
+    def _build_form_groups(forms: list):
+        """Rebuild _form_grid with forms grouped by form_type."""
+        _form_grid.controls.clear()
+
+        # Group preserving insertion order
+        groups: dict[str, list] = {}
+        for f in forms:
+            ft_key = (f.get("form_type") or "other").lower()
+            groups.setdefault(ft_key, []).append(f)
+
+        for ft_key, group_forms in groups.items():
+            label = ft_key.replace("_", " ").title()
+            icon  = _FORM_TYPE_ICONS.get(ft_key, ft.icons.DESCRIPTION_OUTLINED)
+
+            group_grid = ft.GridView(
+                runs_count=2,
+                max_extent=180,
+                child_aspect_ratio=1.1,
+                spacing=10,
+                run_spacing=10,
+                expand=False,
+                height=max(130, ((len(group_forms) + 1) // 2) * 130),
+            )
+            for form in group_forms:
+                group_grid.controls.append(_form_card(form))
+
+            _form_grid.controls.append(
+                ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(icon, color=accent, size=16),
+                                ft.Text(
+                                    label,
+                                    size=state.font_sp() - 1,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.colors.with_opacity(0.7, state.text_color()),
+                                ),
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        group_grid,
+                    ],
+                    spacing=6,
+                )
+            )
+
     def _on_country_change(e):
         country = _country_dropdown.value or ""
         forms = [f for f in _all_forms if f.get("country", "Malaysia") == country]
-        _form_grid.controls.clear()
 
         if forms:
-            for form in forms:
-                _form_grid.controls.append(_form_card(form))
-            _form_grid.controls.append(_add_card())
+            _build_form_groups(forms)
             _empty_state.visible = False
-            grid_height = max(200, (((len(forms) + 1) // 2) + 1) * 130)
+            # Height: sum of per-group grids + headers
+            total_rows = sum(((len([f for f in forms if (f.get("form_type") or "other").lower() == ft_key]) + 1) // 2)
+                             for ft_key in dict.fromkeys((f.get("form_type") or "other").lower() for f in forms))
+            grid_height = max(200, total_rows * 130 + len(dict.fromkeys((f.get("form_type") or "other").lower() for f in forms)) * 40)
         else:
+            _form_grid.controls.clear()
             _empty_state.visible = True
             grid_height = 140
 
         _form_grid_wrapper.height = grid_height
         _form_grid_wrapper.opacity = 1
-        # Expand panel to fit content
         panel_container.height = 120 + grid_height
         page.update()
 
@@ -695,8 +747,24 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     form_panel = ft.Container(
         content=ft.Column(
             [
-                ft.Container(expand=True),  # top spacer — pushes dropdown to center
-                _country_dropdown,
+                ft.Container(expand=True),  # top spacer
+                ft.Row(
+                    [
+                        ft.Container(content=_country_dropdown, expand=True),
+                        ft.IconButton(
+                            icon=ft.icons.ADD_CIRCLE_OUTLINE,
+                            icon_color=accent,
+                            icon_size=28,
+                            tooltip="Add / Scan PDF",
+                            on_click=lambda _: scan_picker.pick_files(
+                                dialog_title="Select a PDF form to scan",
+                                allowed_extensions=["pdf"],
+                            ),
+                        ),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
                 _form_grid_wrapper,
                 ft.Container(expand=True),  # bottom spacer
             ],
@@ -995,7 +1063,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         visible=False,
     )
 
-    _PANEL_OPEN_HEIGHT = 320  # max height when panel is open
+    _PANEL_OPEN_HEIGHT = 300  # max height when panel is open
 
     # ------------------------------------------------------------------ #
     #  set_mode (Task 3.3)                                                #
@@ -2422,6 +2490,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     ),
                     alignment=ft.alignment.center,
                     expand=True,
+                    padding=ft.padding.only(bottom=36),  # room for listen btn
                 ),
                 # ── Listen button pinned bottom-left ──────────────────
                 ft.Container(
@@ -2434,7 +2503,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             expand=True,
         ),
         width=420,
-        height=240,
+        height=220,
         border_radius=20,
         bgcolor=state.surface_color(),
         border=ft.border.all(2, accent),
@@ -2570,6 +2639,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         _iv_last_answer_text.value = ""
         _iv_status_text.value = ""
         _interview_progress_text.value = ""
+        _iv_lang_screen.visible = True
+        _iv_qa_screen.visible = False
         page.update()
 
     def _iv_run_session(ai: InclusiveCitizenAI):
@@ -2926,6 +2997,124 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
     _iv_listen_btn.on_click = _iv_on_listen
 
+    # ── Language picker screen ────────────────────────────────────────────
+    _iv_lang_selected: list = ["English"]
+
+    _IV_IDLE_TEXT  = "#212121"
+
+    _iv_lang_wrap = ft.Row(wrap=True, spacing=10, run_spacing=10)
+
+    def _iv_build_lang_chips(selected: str):
+        _iv_lang_wrap.controls.clear()
+        for lang in ASEAN_LANGUAGES:
+            is_sel = lang == selected
+            _iv_lang_wrap.controls.append(
+                ft.TextButton(
+                    content=ft.Text(
+                        lang,
+                        size=state.font_sp(),
+                        color="#5B23FF" if is_sel else _IV_IDLE_TEXT,
+                        weight=ft.FontWeight.W_700 if is_sel else ft.FontWeight.W_400,
+                    ),
+                    on_click=lambda _, l=lang: _iv_select_lang(l),
+                    style=ft.ButtonStyle(
+                        padding=ft.padding.symmetric(horizontal=8, vertical=6),
+                    ),
+                )
+            )
+
+    def _iv_select_lang(lang: str):
+        _iv_lang_selected[0] = lang
+        _iv_build_lang_chips(lang)
+        page.update()
+
+    _iv_build_lang_chips("English")
+
+    _iv_lang_screen = ft.Container(
+        visible=True,
+        content=ft.Column(
+            [
+                ft.Text(
+                    "Choose your language",
+                    size=state.font_sp() + 3,
+                    weight=ft.FontWeight.BOLD,
+                    color=state.text_color(),
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Text(
+                    "Questions will be asked in the selected language.",
+                    size=state.font_sp() - 1,
+                    color=ft.colors.with_opacity(0.55, state.text_color()),
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Container(height=12),
+                _iv_lang_wrap,
+                ft.Container(height=16),
+                ft.ElevatedButton(
+                    "Start Interview",
+                    icon=ft.icons.ARROW_FORWARD_ROUNDED,
+                    on_click=lambda _: _iv_start_after_lang(),
+                    style=ft.ButtonStyle(
+                        bgcolor=accent,
+                        color=ft.colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=10),
+                        padding=ft.padding.symmetric(vertical=14, horizontal=24),
+                    ),
+                    height=48,
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=8,
+        ),
+        padding=ft.padding.symmetric(horizontal=8, vertical=4),
+    )
+
+    # ── Q&A screen ────────────────────────────────────────────────────────
+    _iv_qa_screen = ft.Container(
+        visible=False,
+        content=ft.Column(
+            [
+                ft.Container(
+                    content=_iv_question_card,
+                    alignment=ft.alignment.center,
+                ),
+                ft.Container(
+                    content=ft.Column(
+                        [_iv_last_answer_text, _iv_status_text],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=2,
+                    ),
+                    alignment=ft.alignment.center,
+                    height=32,
+                ),
+                ft.Row(
+                    [_iv_input_bar, _iv_mic_btn],
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=10,
+            tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+    def _iv_start_after_lang():
+        """Switch from language picker to Q&A screen and start the session."""
+        lang = _iv_lang_selected[0]
+        ai = _iv_ai[0]
+        if ai:
+            ai.set_language(lang)
+        _iv_filling[0] = True
+        _iv_lang_screen.visible = False
+        _iv_qa_screen.visible = True
+        _interview_progress_text.value = ""
+        _iv_question_text.value = "Loading questions..."
+        _iv_last_answer_text.value = ""
+        _iv_status_text.value = ""
+        page.update()
+        _run_in_thread(lambda: _iv_run_session(ai))
+
     interview_modal = ft.AlertDialog(
         modal=True,
         title=ft.Row(
@@ -2948,37 +3137,13 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         ),
         content=ft.Container(
             width=480,
-            height=420,
             bgcolor=state.bg_color(),
             border_radius=12,
             padding=ft.padding.symmetric(horizontal=16, vertical=20),
             content=ft.Column(
-                [
-                    # ── Centered question card ────────────────────────
-                    ft.Container(
-                        content=_iv_question_card,
-                        alignment=ft.alignment.center,
-                    ),
-                    # ── Last answer echo + status ─────────────────────
-                    ft.Container(
-                        content=ft.Column(
-                            [_iv_last_answer_text, _iv_status_text],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                            spacing=2,
-                        ),
-                        alignment=ft.alignment.center,
-                        height=36,
-                    ),
-                    # ── Bottom row: input + mic ───────────────────────
-                    ft.Row(
-                        [_iv_input_bar, _iv_mic_btn],
-                        spacing=10,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                ],
-                spacing=12,
-                expand=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                [_iv_lang_screen, _iv_qa_screen],
+                tight=True,
+                spacing=0,
             ),
         ),
         actions=[],
@@ -2991,7 +3156,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     page.overlay.append(_scan_status_snack)
 
     def _open_interview_for_entry(entry: dict):
-        """Open the interview modal immediately for a given form entry."""
+        """Open the interview modal — show language picker first."""
         try:
             ai = InclusiveCitizenAI(
                 entry["schema_file"],
@@ -2999,16 +3164,20 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             )
             _iv_ai[0] = ai
             _iv_entry[0] = entry
-            _iv_filling[0] = True
+            _iv_filling[0] = False   # not started yet — waiting for lang selection
             _iv_confirming[0] = False
             _interview_title.value = entry.get("display_name", "Interview")
             _interview_progress_text.value = ""
-            _iv_question_text.value = "Loading questions..."
+            # Reset to language picker screen
+            _iv_lang_selected[0] = state.language or "English"
+            _iv_build_lang_chips(_iv_lang_selected[0])
+            _iv_lang_screen.visible = True
+            _iv_qa_screen.visible = False
+            _iv_question_text.value = ""
             _iv_last_answer_text.value = ""
             _iv_status_text.value = ""
             interview_modal.open = True
             page.update()
-            _run_in_thread(lambda: _iv_run_session(ai))
         except Exception as exc:
             _scan_status_snack.content = ft.Text(f"Could not start interview: {exc}")
             _scan_status_snack.open = True
