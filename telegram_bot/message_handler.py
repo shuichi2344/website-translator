@@ -2,6 +2,7 @@
 Telegram Message Handler
 Processes incoming messages and generates responses using existing Bridge engine
 Reuses the same logic as WhatsApp bot
+Optimized for concurrent multi-user handling with thread-safe operations
 """
 import re
 import os
@@ -10,6 +11,7 @@ import tempfile
 import asyncio
 from typing import Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 from engine.database.mysql_handler import MySQLHandler
 from engine.database.rag_integration import RAGIntegration
 from engine.speech.response_gen import generate_final_response, get_dialect_from_language
@@ -30,12 +32,14 @@ class TelegramMessageHandler:
         # Store uploaded documents per user (in-memory cache)
         # Structure: {user_id: {'file_path': str, 'file_type': str, 'timestamp': float, 'extracted_text': str, 'processing': bool}}
         self.user_documents = {}
+        self._user_docs_lock = Lock()  # Thread-safe access to user_documents
         
-        # Thread pool for background processing
-        self.executor = ThreadPoolExecutor(max_workers=4)
+        # Thread pool for background processing (increased workers for better concurrency)
+        self.executor = ThreadPoolExecutor(max_workers=8)
         
         # Cache for document extractions (avoid re-processing)
         self.extraction_cache = {}  # {file_path: {'text': str, 'timestamp': float}}
+        self._extraction_cache_lock = Lock()  # Thread-safe cache access
         
         # Language detection keywords for common ASEAN languages
         self.language_keywords = {
@@ -68,27 +72,206 @@ class TelegramMessageHandler:
         urls = re.findall(url_pattern, text)
         return urls
     
+    def _is_english(self, dialect: str) -> bool:
+        """Check if dialect is English"""
+        if not dialect:
+            return True  # Default to English if no dialect specified
+        
+        dialect_lower = dialect.lower().strip()
+        english_variants = [
+            'english', 'en', 'eng', 
+            'en-us', 'en-gb', 'en-au', 'en-ca',
+            'american english', 'british english'
+        ]
+        return dialect_lower in english_variants
+    
+    def _needs_translation(self, dialect: str) -> bool:
+        """Check if dialect needs translation (not English)"""
+        return not self._is_english(dialect)
+    
+    def _translate_to_english(self, text: str, source_language: str) -> str:
+        """Translate text from source language to English using Google Translator"""
+        try:
+            from deep_translator import GoogleTranslator
+            
+            # Map dialect to language code
+            lang_map = {
+                'Bahasa Melayu': 'ms',
+                'Bahasa Melayu (Malaysian Malay)': 'ms',
+                'Malay': 'ms',
+                'Bahasa Indonesia': 'id',
+                'Indonesian': 'id',
+                'Thai': 'th',
+                'Vietnamese': 'vi',
+                'Filipino/Tagalog': 'tl',
+                'Tagalog': 'tl',
+                'Filipino': 'tl',
+                'Burmese': 'my',
+                'Khmer': 'km',
+                'Lao': 'lo',
+                'Chinese (Simplified)': 'zh-CN',
+                'Chinese (Traditional)': 'zh-TW',
+                'Tamil': 'ta'
+            }
+            
+            # Get source language code (auto-detect if not in map)
+            source_code = lang_map.get(source_language, 'auto')
+            
+            # Translate to English
+            translator = GoogleTranslator(source=source_code, target='en')
+            translated = translator.translate(text)
+            
+            return translated if translated else text
+            
+        except Exception as e:
+            print(f"⚠️ Translation to English error: {e}")
+            return text  # Return original if translation fails
+    
+    def _preserve_formatting(self, text: str) -> tuple:
+        """Extract formatting markers before translation"""
+        import re
+        
+        # Store bullet points and their positions
+        bullets = []
+        lines = text.split('\n')
+        formatted_lines = []
+        
+        for i, line in enumerate(lines):
+            # Check for bullet points (•, -, *, numbers)
+            bullet_match = re.match(r'^(\s*)(•|\-|\*|\d+\.)\s+(.+)$', line)
+            if bullet_match:
+                indent, bullet, content = bullet_match.groups()
+                bullets.append((i, indent, bullet))
+                formatted_lines.append(content.strip())
+            else:
+                formatted_lines.append(line)
+        
+        return '\n'.join(formatted_lines), bullets
+    
+    def _restore_formatting(self, text: str, bullets: list) -> str:
+        """Restore formatting markers after translation"""
+        if not bullets:
+            return text
+        
+        lines = text.split('\n')
+        
+        # Restore bullets
+        for line_num, indent, bullet in bullets:
+            if line_num < len(lines):
+                lines[line_num] = f"{indent}{bullet} {lines[line_num]}"
+        
+        return '\n'.join(lines)
+    
+    def _translate_with_google(self, text: str, target_language: str) -> str:
+        """Translate text using Google Translator (deep-translator) with formatting preservation"""
+        try:
+            from deep_translator import GoogleTranslator
+            import re
+            
+            # Map dialect to language code for GoogleTranslator
+            lang_map = {
+                'Bahasa Melayu': 'ms',
+                'Bahasa Melayu (Malaysian Malay)': 'ms',
+                'Malay': 'ms',
+                'Bahasa Indonesia': 'id',
+                'Indonesian': 'id',
+                'Thai': 'th',
+                'Vietnamese': 'vi',
+                'Filipino/Tagalog': 'tl',
+                'Tagalog': 'tl',
+                'Filipino': 'tl',
+                'Burmese': 'my',
+                'Khmer': 'km',
+                'Lao': 'lo',
+                'Chinese (Simplified)': 'zh-CN',
+                'Chinese (Traditional)': 'zh-TW',
+                'Tamil': 'ta'
+            }
+            
+            # Get the proper language code
+            lang_code = lang_map.get(target_language, target_language.lower()[:2])
+            
+            print(f"🌐 Translating to {target_language} ({lang_code})...")
+            
+            # Preserve formatting by translating line by line
+            lines = text.split('\n')
+            translated_lines = []
+            
+            for line in lines:
+                if not line.strip():
+                    # Keep empty lines
+                    translated_lines.append(line)
+                    continue
+                
+                # Check for bullet points or numbered lists
+                bullet_match = re.match(r'^(\s*)(•|\-|\*|\d+\.)\s+(.+)$', line)
+                
+                if bullet_match:
+                    # Preserve bullet/number, translate content only
+                    indent, bullet, content = bullet_match.groups()
+                    
+                    # Translate the content
+                    translator = GoogleTranslator(source='auto', target=lang_code)
+                    translated_content = translator.translate(content.strip())
+                    
+                    # Reconstruct with original formatting
+                    translated_lines.append(f"{indent}{bullet} {translated_content}")
+                else:
+                    # Regular line, translate as is
+                    translator = GoogleTranslator(source='auto', target=lang_code)
+                    translated_line = translator.translate(line)
+                    translated_lines.append(translated_line)
+            
+            translated_text = '\n'.join(translated_lines)
+            
+            print(f"✅ Translation complete (formatting preserved)")
+            return translated_text if translated_text else text
+            
+        except Exception as e:
+            print(f"⚠️ Google translation error: {e}")
+            # Fallback: translate entire text without formatting preservation
+            try:
+                from deep_translator import GoogleTranslator
+                lang_code = lang_map.get(target_language, target_language.lower()[:2])
+                translator = GoogleTranslator(source='auto', target=lang_code)
+                
+                # Handle long text by chunking
+                max_length = 4500
+                if len(text) > max_length:
+                    chunks = [text[i:i+max_length] for i in range(0, len(text), max_length)]
+                    translated_chunks = []
+                    for chunk in chunks:
+                        translated = translator.translate(chunk)
+                        translated_chunks.append(translated)
+                    return ' '.join(translated_chunks)
+                else:
+                    return translator.translate(text)
+            except:
+                return text  # Return original if all translation attempts fail
+    
     def _extract_document_text_sync(self, file_path: str, lang_code: str = "en") -> Optional[str]:
         """Synchronous document text extraction (runs in thread pool)"""
         try:
-            # Check cache first
-            if file_path in self.extraction_cache:
-                cached = self.extraction_cache[file_path]
-                # Cache valid for 30 minutes
-                if time.time() - cached['timestamp'] < 1800:
-                    print(f"✅ Using cached extraction for {file_path}")
-                    return cached['text']
+            # Check cache first (thread-safe)
+            with self._extraction_cache_lock:
+                if file_path in self.extraction_cache:
+                    cached = self.extraction_cache[file_path]
+                    # Cache valid for 30 minutes
+                    if time.time() - cached['timestamp'] < 1800:
+                        print(f"✅ Using cached extraction for {file_path}")
+                        return cached['text']
             
             print(f"📄 Extracting text from document...")
             summarizer = DocumentSummarizer(target_lang=lang_code)
             text = summarizer.extract_text_from_document(file_path)
             
             if text:
-                # Cache the extraction
-                self.extraction_cache[file_path] = {
-                    'text': text,
-                    'timestamp': time.time()
-                }
+                # Cache the extraction (thread-safe)
+                with self._extraction_cache_lock:
+                    self.extraction_cache[file_path] = {
+                        'text': text,
+                        'timestamp': time.time()
+                    }
                 print(f"✅ Text extracted: {len(text)} characters")
                 return text
             
@@ -101,11 +284,12 @@ class TelegramMessageHandler:
     async def _extract_document_background(self, user_id: str, file_path: str, lang_code: str = "en"):
         """Extract document text in background (non-blocking)"""
         try:
-            if user_id not in self.user_documents:
-                return
-            
-            # Mark as processing
-            self.user_documents[user_id]['processing'] = True
+            # Thread-safe check
+            with self._user_docs_lock:
+                if user_id not in self.user_documents:
+                    return
+                # Mark as processing
+                self.user_documents[user_id]['processing'] = True
             
             # Run extraction in thread pool (non-blocking)
             loop = asyncio.get_event_loop()
@@ -116,16 +300,18 @@ class TelegramMessageHandler:
                 lang_code
             )
             
-            # Store extracted text
-            if user_id in self.user_documents and extracted_text:
-                self.user_documents[user_id]['extracted_text'] = extracted_text
-                self.user_documents[user_id]['processing'] = False
-                print(f"✅ Background extraction complete for user {user_id}")
+            # Store extracted text (thread-safe)
+            with self._user_docs_lock:
+                if user_id in self.user_documents and extracted_text:
+                    self.user_documents[user_id]['extracted_text'] = extracted_text
+                    self.user_documents[user_id]['processing'] = False
+                    print(f"✅ Background extraction complete for user {user_id}")
             
         except Exception as e:
             print(f"❌ Error in background extraction: {e}")
-            if user_id in self.user_documents:
-                self.user_documents[user_id]['processing'] = False
+            with self._user_docs_lock:
+                if user_id in self.user_documents:
+                    self.user_documents[user_id]['processing'] = False
     
     def summarize_url(self, url: str, language: str = "English") -> Dict[str, Any]:
         """
@@ -268,24 +454,35 @@ class TelegramMessageHandler:
     def _generate_simple_response(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
         Generate a simple, child-friendly response for Telegram bot
-        Uses the same style as document summarizer (explain like to a 10-year-old)
-        Falls back to Ollama llama3.2 if Gemini fails
+        Uses Gemini as primary with retry logic, better fallback model
         """
-        try:
-            from google import genai
-            from google.genai import types
-            
-            api_key = os.getenv('GEMINI_API_KEY')
-            if not api_key:
-                print("⚠️ Gemini API key not configured, trying Ollama...")
-                return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
-            
-            client = genai.Client(api_key=api_key)
-            
-            # Combine chunks into context
-            context = "\n---\n".join(relevant_chunks)
-            
-            prompt = f"""You are Bridge, the ASEAN government information assistant.
+        # Try Gemini with retry logic (handles rate limits)
+        max_retries = 3
+        retry_delay = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                from google import genai
+                from google.genai import types
+                import time
+                
+                api_key = os.getenv('GEMINI_API_KEY')
+                if not api_key:
+                    print("⚠️ Gemini API key not configured, trying fallback model...")
+                    return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
+                
+                if attempt > 0:
+                    print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for Gemini...")
+                    time.sleep(retry_delay * attempt)  # Exponential backoff
+                else:
+                    print(f"✨ Using Gemini (primary) for response generation...")
+                
+                client = genai.Client(api_key=api_key)
+                
+                # Combine chunks into context
+                context = "\n---\n".join(relevant_chunks)
+                
+                prompt = f"""You are Bridge, the ASEAN government information assistant.
 Answer the user's question based ONLY on the provided government information.
 
 TARGET LANGUAGE: {dialect}
@@ -294,7 +491,7 @@ USER QUESTION: {user_question}
 GOVERNMENT INFORMATION:
 {context}
 
-IMPORTANT - Write like you're explaining to a 10-year-old child:
+IMPORTANT - Write in simple, clear {dialect}:
 - YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
 - Use everyday words that kids understand (avoid technical jargon)
 - Keep sentences SHORT and SIMPLE (maximum 15-20 words per sentence)
@@ -306,77 +503,101 @@ IMPORTANT - Write like you're explaining to a 10-year-old child:
 - Do NOT write intro text like "Here are the bullet points"
 - LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
 - NO WEBSITES OR URLS: Do not mention any URLs
-- Keep response under 150 words for easy reading
 - STOP when done - no polite closings like "hope this helps"
 
 Answer (in simple, clear {dialect}):"""
-            
-            response = client.models.generate_content(
-                model='gemini-3-flash-preview',
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.4,
-                    top_p=0.95,
-                    max_output_tokens=2048,
+                
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash-exp',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.4,
+                        top_p=0.95,
+                        max_output_tokens=2048,
+                    )
                 )
-            )
-            
-            if response and response.text:
-                # Clean up any markdown formatting
-                clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
-                return clean_text
-            
-            # If no response, try Ollama
-            print("⚠️ Gemini returned empty response, trying Ollama...")
-            return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
-            
-        except Exception as e:
-            print(f"⚠️ Gemini error: {e}")
-            print("   Falling back to Ollama (llama3.2)...")
-            return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
+                
+                if response and response.text:
+                    # Clean up any markdown formatting
+                    clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
+                    print(f"✅ Gemini response generated successfully")
+                    return clean_text
+                
+                # If no response, try next attempt
+                if attempt < max_retries - 1:
+                    print("⚠️ Gemini returned empty response, retrying...")
+                    continue
+                    
+            except Exception as e:
+                error_msg = str(e).lower()
+                
+                # Check if it's a rate limit error
+                if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg or '429' in error_msg:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Gemini rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
+                        continue
+                    else:
+                        print(f"⚠️ Gemini rate limit exceeded after {max_retries} attempts")
+                        print(f"   Falling back to qwen2.5:7b (better than llama3.2)...")
+                else:
+                    print(f"⚠️ Gemini error: {e}")
+                    if attempt < max_retries - 1:
+                        print(f"   Retrying...")
+                        continue
+        
+        # All Gemini attempts failed, use fallback
+        print("   Falling back to qwen2.5:7b (smarter model)...")
+        return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
     
     def _generate_response_with_ollama(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
-        Fallback response generation using Ollama llama3.2
-        Same simple style as Gemini
+        Fallback response generation using Ollama qwen2.5:7b (smarter than llama3.2)
+        Generates in English, then translates if needed
         """
         try:
             import requests
             
-            print(f"🦙 Using Ollama (llama3.2) for response generation...")
+            print(f"� Using Ollama qwen2.5:7b (fallback - smarter model)...")
+            
+            # Translate user question to English if needed
+            english_question = user_question
+            if not self._is_english(dialect):
+                print(f"🌐 Translating question from {dialect} to English...")
+                english_question = self._translate_to_english(user_question, dialect)
+                print(f"📝 Translated question: {english_question}")
             
             # Combine chunks into context
             context = "\n---\n".join(relevant_chunks)
             
+            # Always prompt in English for consistent quality
             prompt = f"""You are Bridge, the ASEAN government information assistant.
 Answer the user's question based ONLY on the provided government information.
 
-TARGET LANGUAGE: {dialect}
-USER QUESTION: {user_question}
+USER QUESTION: {english_question}
 
 GOVERNMENT INFORMATION:
 {context}
 
-IMPORTANT - Write like you're explaining to a 10-year-old child:
-- YES/NO FIRST: If the user is asking a closed-ended question, start with "Yes" or "No" in the target language.
+IMPORTANT - Write in simple, clear English:
+- YES/NO FIRST: If the user is asking a closed-ended question, start with "Yes" or "No".
 - Use everyday words that kids understand (avoid technical jargon)
 - Keep sentences SHORT and SIMPLE (maximum 15-20 words per sentence)
 - Explain what things DO, not what they're called
 - If you must use a technical term, explain it in simple words right after
 - Focus on the MAIN IDEAS only - skip minor details
 - You can use bullet points (•) for lists
-- Do NOT include titles, headers, or bold text
-- LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
+- Do NOT include titles, headers, or bold text (**)
+- Do NOT write intro text like "Here are the bullet points"
 - NO WEBSITES OR URLS: Do not mention any URLs
-- Keep response under 150 words
-- STOP when done - no polite closings
+- Keep response under 250 words for easy reading
+- STOP when done - no polite closings like "hope this helps"
 
-Answer (in simple, clear {dialect}):"""
+Answer (in simple, clear English):"""
             
             response = requests.post(
                 "http://localhost:11434/api/generate",
                 json={
-                    "model": "llama3.2",
+                    "model": "qwen2.5:7b",
                     "prompt": prompt,
                     "stream": False,
                     "options": {
@@ -393,16 +614,22 @@ Answer (in simple, clear {dialect}):"""
                 if answer:
                     # Clean up any markdown formatting
                     answer = answer.replace('**', '').replace('*', '').replace('__', '').replace('#', '')
-                    print(f"✅ Ollama response generated successfully")
+                    
+                    # Only translate if target language is not English
+                    if not self._is_english(dialect):
+                        print(f"🌐 Translating response from English to {dialect}...")
+                        answer = self._translate_with_google(answer, dialect)
+                    else:
+                        print(f"✅ Response in English, no translation needed")
+                    
+                    print(f"✅ qwen2.5 response generated successfully")
                     return answer
             
-            print("⚠️ Ollama failed, using original method...")
-            return generate_final_response(user_question, relevant_chunks, dialect)
+            return ""  # Return empty if failed
             
         except Exception as e:
-            print(f"⚠️ Ollama error: {e}")
-            print("   Using original response generation method...")
-            return generate_final_response(user_question, relevant_chunks, dialect)
+            print(f"⚠️ qwen2.5 error: {e}")
+            return ""  # Return empty if failed
     
     async def handle_message(self, message_text: str, telegram_user, user_language: str = "English") -> str:
         """
@@ -426,9 +653,13 @@ Answer (in simple, clear {dialect}):"""
             username = telegram_user.username or "Unknown"
             print(f"📱 Message from: {username} ({telegram_id})")
             
-            # Check if user has an uploaded document/image and this is a follow-up question
-            if telegram_id in self.user_documents:
-                doc_info = self.user_documents[telegram_id]
+            # Check if user has an uploaded document/image and this is a follow-up question (thread-safe)
+            with self._user_docs_lock:
+                has_document = telegram_id in self.user_documents
+                if has_document:
+                    doc_info = self.user_documents[telegram_id].copy()  # Copy to avoid holding lock
+            
+            if has_document:
                 # Check if document is recent (within last 30 minutes)
                 if time.time() - doc_info['timestamp'] < 1800:
                     print(f"📎 User has uploaded {doc_info['file_type']}: {doc_info['file_name']}")
@@ -443,14 +674,17 @@ Answer (in simple, clear {dialect}):"""
                         elif doc_info['file_type'] == 'image':
                             return await self._process_image_analysis(telegram_id, message_text, telegram_user)
                 else:
-                    # Document expired, remove it
+                    # Document expired, remove it (thread-safe)
                     print(f"🗑️ Removing expired document for user {telegram_id}")
-                    try:
-                        if os.path.exists(doc_info['file_path']):
-                            os.remove(doc_info['file_path'])
-                    except:
-                        pass
-                    del self.user_documents[telegram_id]
+                    with self._user_docs_lock:
+                        if telegram_id in self.user_documents:
+                            expired_doc = self.user_documents[telegram_id]
+                            try:
+                                if os.path.exists(expired_doc['file_path']):
+                                    os.remove(expired_doc['file_path'])
+                            except:
+                                pass
+                            del self.user_documents[telegram_id]
             
             # Check if message contains URLs
             urls = self.extract_urls(message_text)
@@ -749,15 +983,16 @@ Answer (in simple, clear {dialect}):"""
             await file_obj.download_to_drive(temp_path)
             print(f"✅ Document downloaded: {temp_path}")
             
-            # Store document info for this user
-            self.user_documents[telegram_id] = {
-                'file_path': temp_path,
-                'file_name': file_name,
-                'file_type': 'document',
-                'timestamp': time.time(),
-                'extracted_text': None,
-                'processing': False
-            }
+            # Store document info for this user (thread-safe)
+            with self._user_docs_lock:
+                self.user_documents[telegram_id] = {
+                    'file_path': temp_path,
+                    'file_name': file_name,
+                    'file_type': 'document',
+                    'timestamp': time.time(),
+                    'extracted_text': None,
+                    'processing': False
+                }
             
             # Start background extraction immediately (non-blocking)
             asyncio.create_task(self._extract_document_background(telegram_id, temp_path))
@@ -813,13 +1048,14 @@ Answer (in simple, clear {dialect}):"""
             await file_obj.download_to_drive(temp_path)
             print(f"✅ Photo downloaded: {temp_path}")
             
-            # Store photo info for this user
-            self.user_documents[telegram_id] = {
-                'file_path': temp_path,
-                'file_name': 'photo.jpg',
-                'file_type': 'image',
-                'timestamp': time.time()
-            }
+            # Store photo info for this user (thread-safe)
+            with self._user_docs_lock:
+                self.user_documents[telegram_id] = {
+                    'file_path': temp_path,
+                    'file_name': 'photo.jpg',
+                    'file_type': 'image',
+                    'timestamp': time.time()
+                }
             
             # If there's a caption with a question, process it immediately
             if caption and len(caption.strip()) > 5:
@@ -889,9 +1125,12 @@ Answer (in simple, clear {dialect}):"""
     async def _process_document_qa(self, user_id: str, question: str, telegram_user) -> str:
         """Answer a question about a document (optimized with background extraction)"""
         try:
-            doc_info = self.user_documents.get(user_id)
-            if not doc_info:
-                return "⚠️ No document found. Please upload a document first, then ask your question."
+            # Thread-safe access to document info
+            with self._user_docs_lock:
+                doc_info = self.user_documents.get(user_id)
+                if not doc_info:
+                    return "⚠️ No document found. Please upload a document first, then ask your question."
+                doc_info = doc_info.copy()  # Copy to avoid holding lock
             
             file_path = doc_info['file_path']
             file_name = doc_info['file_name']
@@ -913,9 +1152,10 @@ Answer (in simple, clear {dialect}):"""
                     # Wait a bit for background extraction (max 5 seconds)
                     for _ in range(10):
                         await asyncio.sleep(0.5)
-                        if doc_info.get('extracted_text'):
-                            extracted_text = doc_info['extracted_text']
-                            break
+                        with self._user_docs_lock:
+                            if user_id in self.user_documents and self.user_documents[user_id].get('extracted_text'):
+                                extracted_text = self.user_documents[user_id]['extracted_text']
+                                break
                 
                 # If still no text, extract now (blocking)
                 if not extracted_text:
@@ -928,8 +1168,11 @@ Answer (in simple, clear {dialect}):"""
                         lang_code
                     )
                     
-                    if extracted_text and user_id in self.user_documents:
-                        self.user_documents[user_id]['extracted_text'] = extracted_text
+                    # Store extracted text (thread-safe)
+                    if extracted_text:
+                        with self._user_docs_lock:
+                            if user_id in self.user_documents:
+                                self.user_documents[user_id]['extracted_text'] = extracted_text
             
             if not extracted_text:
                 return f"⚠️ Could not extract text from {file_name}. Please try uploading again."
@@ -972,11 +1215,12 @@ Answer (in simple, clear {dialect}):"""
     async def _process_image_analysis(self, user_id: str, question: str, telegram_user) -> str:
         """Analyze an image using Gemini Vision"""
         try:
-            doc_info = self.user_documents.get(user_id)
-            if not doc_info:
-                return "⚠️ No image found. Please upload an image first."
-            
-            file_path = doc_info['file_path']
+            # Thread-safe access to document info
+            with self._user_docs_lock:
+                doc_info = self.user_documents.get(user_id)
+                if not doc_info:
+                    return "⚠️ No image found. Please upload an image first."
+                file_path = doc_info['file_path']
             
             print(f"🔍 Analyzing image with Gemini Vision")
             print(f"❓ Question: {question}")
@@ -1002,7 +1246,6 @@ Answer (in simple, clear {dialect}):"""
 IMPORTANT - Write like you're explaining to a 10-year-old child:
 - YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
 - Use everyday words that kids understand (avoid technical jargon)
-- Keep sentences SHORT and SIMPLE (maximum 15-20 words per bullet)
 - Explain what things DO, not what they're called
 - If you must use a technical term, explain it in simple words right after
 - Focus on the MAIN IDEAS only - skip minor details

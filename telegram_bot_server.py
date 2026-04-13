@@ -3,6 +3,7 @@ Telegram Bot Server
 Simple polling-based bot that works without webhooks
 Much easier than WhatsApp - no ngrok needed!
 Supports text and voice messages!
+Optimized for concurrent multi-user handling with async processing
 """
 import os
 import asyncio
@@ -15,7 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize message handler
+# Initialize message handler (singleton - thread-safe)
 message_handler = get_message_handler()
 
 # ASEAN Countries
