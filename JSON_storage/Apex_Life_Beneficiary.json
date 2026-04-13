@@ -1,0 +1,410 @@
+{
+  "form_id": "APEX-LIFE-BENEFICIARY-FINAL-2026-V1",
+  "organization": "APEX ASSURANCE GROUP",
+  "sections": [
+    {
+      "section_name": "GENERAL",
+      "fields": [
+        {
+          "field_id": "apex_assurance_group",
+          "label": "APEX ASSURANCE GROUP",
+          "input_bbox": null,
+          "label_bbox": {
+            "l": 110.0,
+            "t": 762.924,
+            "r": 290.0,
+            "b": 746.274,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "your_trust,_our_commitment._",
+          "label": "Your Trust, Our Commitment. Since 1998.",
+          "input_bbox": null,
+          "label_bbox": {
+            "l": 110.0,
+            "t": 744.744,
+            "r": 266.0,
+            "b": 737.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        }
+      ]
+    },
+    {
+      "section_name": "LIFE INSURANCE: BENEFICIARY DESIGNATION",
+      "fields": []
+    },
+    {
+      "section_name": "1. POLICYHOLDER DETAILS",
+      "fields": [
+        {
+          "field_id": "full_name_of_insured:",
+          "label": "Full Name of Insured:",
+          "input_bbox": {
+            "l": 162.02,
+            "t": 620.0,
+            "r": 310.0,
+            "b": 622.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 628.462,
+            "r": 154.5,
+            "b": 620.137,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "identification_number:",
+          "label": "Identification Number:",
+          "input_bbox": {
+            "l": 425.51,
+            "t": 620.0,
+            "r": 550.0,
+            "b": 622.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 320.0,
+            "t": 628.462,
+            "r": 419.0,
+            "b": 620.137,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "date_of_birth_(mm/dd/yyyy):",
+          "label": "Date of Birth (MM/DD/YYYY):",
+          "input_bbox": {
+            "l": 192.5,
+            "t": 595.0,
+            "r": 260.0,
+            "b": 597.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 603.462,
+            "r": 181.5,
+            "b": 595.137,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "primary_phone_number:",
+          "label": "Primary Phone Number:",
+          "input_bbox": {
+            "l": 393.02,
+            "t": 595.0,
+            "r": 550.0,
+            "b": 597.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 280.0,
+            "t": 603.462,
+            "r": 374.5,
+            "b": 595.137,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "email_address:",
+          "label": "Email Address:",
+          "input_bbox": {
+            "l": 135.52,
+            "t": 570.0,
+            "r": 290.0,
+            "b": 572.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 578.462,
+            "r": 123.0,
+            "b": 570.137,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "home_address:",
+          "label": "Home Address:",
+          "input_bbox": {
+            "l": 376.51,
+            "t": 570.0,
+            "r": 550.0,
+            "b": 572.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 300.0,
+            "t": 578.462,
+            "r": 358.5,
+            "b": 570.137,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        }
+      ]
+    },
+    {
+      "section_name": "2. PRIMARY BENEFICIARY DESIGNATION",
+      "fields": [
+        {
+          "field_id": "full_name_1",
+          "label": "Full Name",
+          "row": 1,
+          "input_bbox": {
+            "l": 65.0,
+            "t": 475.0,
+            "r": 230.0,
+            "b": 477.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 512.744,
+            "r": 96.0,
+            "b": 505.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "full_name_2",
+          "label": "Full Name",
+          "row": 2,
+          "input_bbox": {
+            "l": 65.0,
+            "t": 445.0,
+            "r": 230.0,
+            "b": 447.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 512.744,
+            "r": 96.0,
+            "b": 505.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "relationship_1",
+          "label": "Relationship",
+          "row": 1,
+          "input_bbox": {
+            "l": 245.0,
+            "t": 475.0,
+            "r": 350.0,
+            "b": 477.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 240.0,
+            "t": 512.744,
+            "r": 288.0,
+            "b": 505.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "relationship_2",
+          "label": "Relationship",
+          "row": 2,
+          "input_bbox": {
+            "l": 245.0,
+            "t": 445.0,
+            "r": 350.0,
+            "b": 447.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 240.0,
+            "t": 512.744,
+            "r": 288.0,
+            "b": 505.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "phone_number_1",
+          "label": "Phone Number",
+          "row": 1,
+          "input_bbox": {
+            "l": 365.0,
+            "t": 475.0,
+            "r": 480.0,
+            "b": 477.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 360.0,
+            "t": 512.744,
+            "r": 408.0,
+            "b": 505.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "phone_number_2",
+          "label": "Phone Number",
+          "row": 2,
+          "input_bbox": {
+            "l": 365.0,
+            "t": 445.0,
+            "r": 480.0,
+            "b": 447.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 360.0,
+            "t": 512.744,
+            "r": 408.0,
+            "b": 505.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "benefit_%_1",
+          "label": "Benefit %",
+          "row": 1,
+          "input_bbox": {
+            "l": 495.0,
+            "t": 475.0,
+            "r": 550.0,
+            "b": 477.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 490.0,
+            "t": 512.744,
+            "r": 526.0,
+            "b": 505.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "benefit_%_2",
+          "label": "Benefit %",
+          "row": 2,
+          "input_bbox": {
+            "l": 495.0,
+            "t": 445.0,
+            "r": 550.0,
+            "b": 447.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 490.0,
+            "t": 512.744,
+            "r": 526.0,
+            "b": 505.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        }
+      ]
+    },
+    {
+      "section_name": "3. AUTHORIZATION & LEGAL DECLARATION",
+      "fields": [
+        {
+          "field_id": "i_hereby_request_that_the_be",
+          "label": "I hereby request that the beneficiary designation for the policy indicated above be changed. I understand that the company is not responsible for the validity of any designation.",
+          "row": 1,
+          "label_bbox": {
+            "l": 65.0,
+            "t": 384.744,
+            "r": 505.0,
+            "b": 367.744,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "policyowner_signature",
+          "label": "Policyowner Signature",
+          "input_bbox": {
+            "l": 65.0,
+            "t": 308.46,
+            "r": 154.5,
+            "b": 300.46,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 298.462,
+            "r": 154.5,
+            "b": 290.137,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "date_signed",
+          "label": "Date Signed",
+          "input_bbox": {
+            "l": 437.0,
+            "t": 308.46,
+            "r": 481.5,
+            "b": 300.46,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 432.0,
+            "t": 298.462,
+            "r": 481.5,
+            "b": 290.137,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "form_id:_apex-life-ben-2026-",
+          "label": "Form ID: APEX-LIFE-BEN-2026-V3",
+          "input_bbox": null,
+          "label_bbox": {
+            "l": 451.526,
+            "t": 45.026,
+            "r": 556.526,
+            "b": 38.551,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "phone:_+1_(800)_555-apex",
+          "label": "Phone: +1 (800) 555-APEX",
+          "input_bbox": null,
+          "label_bbox": {
+            "l": 464.832,
+            "t": 757.744,
+            "r": 560.832,
+            "b": 750.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "email:_support@apexassurance",
+          "label": "Email: support@apexassurance.com",
+          "input_bbox": null,
+          "label_bbox": {
+            "l": 431.168,
+            "t": 747.744,
+            "r": 559.168,
+            "b": 740.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "web:_www.apexassurance.com",
+          "label": "Web: www.apexassurance.com",
+          "input_bbox": null,
+          "label_bbox": {
+            "l": 449.968,
+            "t": 737.744,
+            "r": 553.968,
+            "b": 730.344,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        }
+      ]
+    }
+  ]
+}

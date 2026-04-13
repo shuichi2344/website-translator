@@ -29,8 +29,6 @@ Thumbs.db
 # Database
 chroma_db/
 *.sqlite3
-document_db/
-JSON_storage/
 
 # Logs
 *.log
@@ -39,6 +37,3 @@ JSON_storage/
 *.tmp
 *.bak
 *.backup
-
-# JSON files
-*.json
