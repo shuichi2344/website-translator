@@ -723,6 +723,16 @@ Answer (in simple, clear English):"""
             # Save user message to database
             self.rag.save_user_message(conversation_id, message_text)
             
+            # Update conversation title if this is the first message
+            try:
+                messages = self.rag.get_conversation_history(conversation_id)
+                if messages and len(messages) == 1:  # Only user message exists
+                    # Generate title from first message (max 50 chars)
+                    title = message_text[:50] + "..." if len(message_text) > 50 else message_text
+                    self.rag.update_conversation_title(conversation_id, title)
+            except Exception as e:
+                print(f"⚠️ Failed to update conversation title: {e}")
+            
             # Use user's saved language preference (not detected from message)
             # This ensures responses are in the user's chosen language even if they ask in English
             user_language = user.get('language', 'en')
@@ -754,30 +764,87 @@ Answer (in simple, clear English):"""
             print(f"👤 User language preference: {language_name}")
             print(f"🗣️ Response will be in: {dialect}")
             
-            # Get relevant context using RAG
-            context = self.rag.get_context_for_response(
-                query=message_text,
-                conversation_id=conversation_id,
-                include_history=True
-            )
+            # ═══════════════════════════════════════════════════════════════════
+            # RAG RETRIEVAL PHASE
+            # Step 1: Query → Embedding
+            # Step 2: Embedding → Vector Database (ChromaDB)
+            # Step 3: Vector Database → Relevant Data
+            # ═══════════════════════════════════════════════════════════════
             
-            # Extract relevant chunks for response generation
+            print("\n🔍 [RAG Step 1-3] Querying Vector Database (ChromaDB)...")
             relevant_chunks = []
-            if context['relevant_messages']:
-                for msg in context['relevant_messages']:
-                    if msg['sender'] == 'bot':
-                        relevant_chunks.append(msg['message_text'])
-            
-            # If no relevant context, fetch fresh data from government websites
             sources = []
-            fetched_fresh_data = False  # Track if we fetched new data
+            fetched_fresh_data = False
             
-            if not relevant_chunks:
-                print("📡 No cached context found, fetching fresh government data...")
+            try:
+                from engine.speech.embedding import query_from_chroma
+                
+                # Query ChromaDB with embedded question
+                # min_similarity=0.6 means we need at least 60% similarity
+                cached_chunks, cached_sources = query_from_chroma(message_text, top_k=5, min_similarity=0.6)
+                
+                if cached_chunks and len(cached_chunks) >= 3:
+                    print(f"✅ Found {len(cached_chunks)} relevant chunks in Vector Database")
+                    if cached_sources:
+                        print(f"   📎 From {len(cached_sources)} source URLs")
+                    relevant_chunks = cached_chunks
+                    sources = cached_sources
+                else:
+                    if cached_chunks:
+                        print(f"ℹ️ Found {len(cached_chunks)} chunks but below threshold (need 3+)")
+                    else:
+                        print("ℹ️ No relevant data found in Vector Database")
+            except Exception as e:
+                print(f"⚠️ Error querying Vector Database: {e}")
+            
+            # ═══════════════════════════════════════════════════════════════
+            # DATA PREPARATION PHASE (Only if Vector Database is empty)
+            # Step A: Raw Data Sources (Government websites)
+            # Step B: Information Extraction (Firecrawl)
+            # Step C: Chunking
+            # Step D: Embedding → Store in Vector Database
+            # ═══════════════════════════════════════════════════════════════
+            
+            if not relevant_chunks or len(relevant_chunks) < 3:
+                print(f"\n📡 [Data Preparation] Vector Database has insufficient data, fetching fresh sources...")
+                
+                # Step A: Raw Data Sources
+                print(f"[Step A] Searching for government sources...")
                 gov_data = self.fetch_government_data(message_text, self.default_country)
-                relevant_chunks = gov_data["chunks"]
-                sources = gov_data["sources"]
-                fetched_fresh_data = bool(sources)  # Only true if we got sources
+                all_chunks = gov_data["chunks"]
+                source_links = gov_data["sources"]
+                
+                if all_chunks and source_links:
+                    print(f"✅ [Step B] Extracted {len(all_chunks)} chunks from {len(source_links)} sources")
+                    
+                    # Step C: Chunking (already done by fetch_government_data)
+                    print(f"[Step C] Chunking complete: {len(all_chunks)} chunks")
+                    
+                    # Create chunk-to-URL mapping
+                    from engine.speech.web_scraping import get_chunks_from_list
+                    # Re-scrape to get proper mapping (this is a workaround)
+                    # TODO: Update fetch_government_data to return chunk_to_url_map
+                    all_chunks_with_map, chunk_to_url_map = get_chunks_from_list(source_links)
+                    
+                    # Step D: Embedding → Store in Vector Database
+                    try:
+                        from engine.speech.embedding import ingest_to_chroma
+                        from datetime import datetime
+                        doc_id = f"telegram_gov_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                        ingest_to_chroma(doc_id, all_chunks_with_map, source_urls=chunk_to_url_map)
+                        print(f"✅ [Step D] Stored embeddings in Vector Database with ID: {doc_id}")
+                        
+                        # Now query again to get relevant chunks with sources
+                        print(f"\n🔍 [RAG Step 1-3] Re-querying Vector Database with new data...")
+                        relevant_chunks, sources = query_from_chroma(message_text, top_k=5)
+                        fetched_fresh_data = True
+                        
+                    except Exception as e:
+                        print(f"⚠️ Failed to store in Vector Database: {e}")
+                        # Use the chunks directly if storage failed
+                        relevant_chunks = all_chunks_with_map[:5]
+                        sources = source_links
+                        fetched_fresh_data = True
                 
                 # If still no data, use fallback message
                 if not relevant_chunks:

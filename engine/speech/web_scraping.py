@@ -53,14 +53,38 @@ def scrape_with_firecrawl(url):
         return []
 
 def get_chunks_from_list(url_list):
+    """
+    Scrape multiple URLs and return chunks with source URL metadata
+    
+    Returns:
+        tuple: (chunks, chunk_to_url_map)
+        - chunks: list of text chunks
+        - chunk_to_url_map: dict mapping chunk index to source URL
+    """
     final_chunks = []
+    chunk_to_url_map = {}  # Maps chunk index to source URL
+    
     for url in url_list:
         print(f"Processing: {url}")
         page_chunks = scrape_with_firecrawl(url)
-        final_chunks.extend(page_chunks)
+        
+        # Track which URL each chunk came from
+        for chunk in page_chunks:
+            chunk_to_url_map[len(final_chunks)] = url
+            final_chunks.append(chunk)
     
-    unique_chunks = list(dict.fromkeys(final_chunks))
-    return unique_chunks
+    # Remove duplicates while preserving URL mapping
+    unique_chunks = []
+    unique_chunk_to_url = {}
+    seen = set()
+    
+    for i, chunk in enumerate(final_chunks):
+        if chunk not in seen:
+            seen.add(chunk)
+            unique_chunk_to_url[len(unique_chunks)] = chunk_to_url_map[i]
+            unique_chunks.append(chunk)
+    
+    return unique_chunks, unique_chunk_to_url
 
 # # Test run
 # if __name__ == "__main__":

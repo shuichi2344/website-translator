@@ -315,9 +315,15 @@ class ChromaDBConfig:
             print(f"❌ Error listing documents: {e}")
             return []
         
-    def add_document_chunks(self, doc_id, chunks, embeddings, metadata_list=None):
+    def add_document_chunks(self, doc_id, chunks, embeddings, metadatas=None):
         """
         Receives text and vectors from the embedding script and persists them.
+        
+        Args:
+            doc_id: Unique document identifier
+            chunks: List of text chunks
+            embeddings: Numpy array of embeddings
+            metadatas: Optional list of metadata dicts (one per chunk)
         """
         collection = self.get_collection()
         
@@ -325,16 +331,32 @@ class ChromaDBConfig:
         ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
         
         # Default metadata if none provided
-        if not metadata_list:
-            metadata_list = [{"doc_id": doc_id, "timestamp": datetime.now().isoformat()} for _ in chunks]
+        if not metadatas:
+            metadatas = [{"doc_id": doc_id, "timestamp": datetime.now().isoformat()} for _ in chunks]
+        else:
+            # Ensure doc_id and timestamp are in all metadata
+            for metadata in metadatas:
+                if "doc_id" not in metadata:
+                    metadata["doc_id"] = doc_id
+                if "timestamp" not in metadata:
+                    metadata["timestamp"] = datetime.now().isoformat()
 
         collection.add(
             ids=ids,
             embeddings=embeddings.tolist(), # Converts numpy array to list for Chroma
             documents=chunks,
-            metadatas=metadata_list
+            metadatas=metadatas
         )
         print(f"✅ successfully persisted {len(chunks)} chunks to {self.db_path}")
+        
+        # Log source URLs if present
+        source_urls = set()
+        for metadata in metadatas:
+            if "source_url" in metadata:
+                source_urls.add(metadata["source_url"])
+        
+        if source_urls:
+            print(f"   📎 Sources: {len(source_urls)} unique URLs")
 
 
 def main():

@@ -89,10 +89,10 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     rag = get_rag_instance()
     if RAG_AVAILABLE and rag and state.user_id:
         if not state.conversation_id:
-            # Create new conversation for this session
+            # Create new conversation with default "New Chat" title
             state.conversation_id = rag.create_conversation(
                 user_id=state.user_id,
-                title=f"Chat - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                title="New Chat"
             )
             print(f"✅ Created conversation: {state.conversation_id}")
         else:
@@ -113,6 +113,12 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     is_processing: list = [False] # True while voice result is being processed
     _search_audio_chunks: list = []   # raw audio frames captured in search mode
     _search_sd_stream: list = [None]  # sounddevice InputStream handle
+    
+    # Sidebar state
+    sidebar_visible: list = [False]  # Sidebar visibility state
+    conversations_list: list = []  # List of user conversations
+    sidebar_width: list = [280]  # Sidebar width (adjustable)
+    is_resizing: list = [False]  # Track if user is resizing sidebar
 
     LANG_CODE_MAP = {
         "English": "en", "Malay": "ms", "Indonesian": "id", "Thai": "th",
@@ -1122,6 +1128,241 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     BUBBLE_USER_FG   = ft.colors.WHITE
     BUBBLE_BOT_FG    = state.text_color()
     BUBBLE_STATUS_FG = ft.colors.with_opacity(0.6, state.text_color())
+    
+    # ------------------------------------------------------------------ #
+    #  Sidebar - Conversation History                                     #
+    # ------------------------------------------------------------------ #
+    
+    def load_conversations():
+        """Load user's conversation history from database"""
+        if not RAG_AVAILABLE or not rag or not state.user_id:
+            return
+        try:
+            convos = rag.mysql.get_user_conversations(state.user_id)
+            conversations_list.clear()
+            conversations_list.extend(convos)
+            refresh_sidebar()
+        except Exception as e:
+            print(f"⚠️ Failed to load conversations: {e}")
+    
+    def refresh_sidebar():
+        """Refresh the sidebar conversation list"""
+        sidebar_list.controls.clear()
+        
+        for convo in conversations_list:
+            convo_id = convo.get('conversation_id')
+            title = convo.get('title', 'Untitled Chat')
+            created_at = convo.get('created_at', '')
+            
+            # Truncate title if too long
+            display_title = title if len(title) <= 30 else title[:27] + "..."
+            
+            # Highlight active conversation
+            is_active = convo_id == state.conversation_id
+            
+            convo_btn = ft.Container(
+                content=ft.Column([
+                    ft.Text(
+                        display_title,
+                        size=14,
+                        weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.NORMAL,
+                        color=accent if is_active else state.text_color(),
+                    ),
+                    ft.Text(
+                        str(created_at)[:16] if created_at else "",
+                        size=10,
+                        color=ft.colors.GREY_500,
+                    ),
+                ], spacing=2, tight=True),
+                padding=ft.padding.all(12),
+                border_radius=8,
+                bgcolor=ft.colors.with_opacity(0.1, accent) if is_active else None,
+                on_click=lambda e, cid=convo_id: switch_conversation(cid),
+                ink=True,
+            )
+            sidebar_list.controls.append(convo_btn)
+        
+        page.update()
+    
+    def switch_conversation(conversation_id: str):
+        """Switch to a different conversation"""
+        if conversation_id == state.conversation_id:
+            return
+        
+        # Save current conversation_id
+        state.conversation_id = conversation_id
+        
+        # Clear chat list
+        chat_list.controls.clear()
+        
+        # Load conversation history
+        if RAG_AVAILABLE and rag:
+            try:
+                messages = rag.get_conversation_history(conversation_id)
+                for msg in messages:
+                    sender = msg.get('sender', 'user')
+                    text = msg.get('message_text', '')
+                    
+                    # Parse sources if they exist in the message
+                    sources = []
+                    if '\n\nReferences:\n' in text:
+                        parts = text.split('\n\nReferences:\n')
+                        text = parts[0]
+                        if len(parts) > 1:
+                            source_lines = parts[1].split('\n')
+                            sources = [line.split('. ', 1)[1] if '. ' in line else line 
+                                     for line in source_lines if line.strip()]
+                    
+                    role = "user" if sender == "user" else "bot"
+                    _add_bubble(text, role, sources if sources else None)
+            except Exception as e:
+                print(f"⚠️ Failed to load conversation: {e}")
+        
+        refresh_sidebar()
+        page.update()
+    
+    def create_new_chat():
+        """Create a new conversation (only if current one has messages)"""
+        if not RAG_AVAILABLE or not rag or not state.user_id:
+            return
+        
+        # Check if current conversation is empty
+        if state.conversation_id:
+            try:
+                messages = rag.get_conversation_history(state.conversation_id)
+                if not messages or len(messages) == 0:
+                    # Current conversation is empty, don't create a new one
+                    print("⚠️ Current conversation is empty, not creating new chat")
+                    return
+            except Exception as e:
+                print(f"⚠️ Failed to check conversation history: {e}")
+        
+        # Create new conversation
+        new_convo_id = rag.create_conversation(
+            user_id=state.user_id,
+            title="New Chat"
+        )
+        
+        if new_convo_id:
+            state.conversation_id = new_convo_id
+            chat_list.controls.clear()
+            load_conversations()
+            page.update()
+            print(f"✅ Created new conversation: {new_convo_id}")
+    
+    # Resize handlers
+    def on_resize_start(e):
+        """Start resizing sidebar"""
+        is_resizing[0] = True
+    
+    def on_resize_update(e: ft.DragUpdateEvent):
+        """Update sidebar width while dragging"""
+        if not is_resizing[0]:
+            return
+        
+        # Calculate new width (minimum 200px, maximum 500px)
+        new_width = sidebar_width[0] + e.delta_x
+        new_width = max(200, min(500, new_width))
+        
+        sidebar_width[0] = new_width
+        sidebar_container.width = new_width
+        page.update()
+    
+    def on_resize_end(e):
+        """End resizing sidebar"""
+        is_resizing[0] = False
+    
+    # Resize handle (draggable divider)
+    resize_handle = ft.GestureDetector(
+        content=ft.Container(
+            width=8,
+            bgcolor=ft.colors.TRANSPARENT,
+            border=ft.border.only(left=ft.BorderSide(2, ft.colors.with_opacity(0.3, accent))),
+            expand=True,
+        ),
+        on_pan_start=on_resize_start,
+        on_pan_update=on_resize_update,
+        on_pan_end=on_resize_end,
+        mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
+    )
+    
+    # Sidebar list container
+    sidebar_list = ft.Column(
+        spacing=4,
+        scroll=ft.ScrollMode.AUTO,
+        expand=True,
+    )
+    
+    # Store sidebar_with_handle reference in a list so it can be accessed before definition
+    sidebar_with_handle_ref = [None]
+    
+    # Define toggle function that will be used by buttons
+    def toggle_sidebar():
+        """Toggle sidebar visibility"""
+        sidebar_visible[0] = not sidebar_visible[0]
+        if sidebar_with_handle_ref[0]:
+            sidebar_with_handle_ref[0].visible = sidebar_visible[0]
+        page.update()
+    
+    # Sidebar container
+    sidebar_container = ft.Container(
+        content=ft.Column([
+            # Header with close button
+            ft.Row([
+                ft.Text(
+                    "Conversations",
+                    size=18,
+                    weight=ft.FontWeight.BOLD,
+                    color=state.text_color(),
+                ),
+                ft.IconButton(
+                    icon=ft.icons.CLOSE,
+                    icon_color=state.text_color(),
+                    on_click=lambda _: toggle_sidebar(),
+                    tooltip="Close",
+                ),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            
+            # New Chat button
+            ft.Container(
+                content=ft.ElevatedButton(
+                    "➕ New Chat",
+                    on_click=lambda _: create_new_chat(),
+                    style=ft.ButtonStyle(
+                        bgcolor=accent,
+                        color=ft.colors.WHITE,
+                        padding=ft.padding.symmetric(horizontal=20, vertical=12),
+                    ),
+                ),
+                width=None,
+            ),
+            
+            ft.Divider(height=1, color=ft.colors.with_opacity(0.2, state.text_color())),
+            
+            # Conversation list
+            ft.Container(
+                content=sidebar_list,
+                expand=True,
+            ),
+        ], spacing=12, expand=True),
+        width=280,
+        padding=ft.padding.all(16),
+        bgcolor=state.surface_color(),
+    )
+    
+    # Sidebar with resize handle
+    sidebar_with_handle = ft.Row(
+        [sidebar_container, resize_handle],
+        spacing=0,
+        visible=False
+    )
+    
+    # Store reference for toggle function
+    sidebar_with_handle_ref[0] = sidebar_with_handle
+    
+    # Load conversations on startup
+    if RAG_AVAILABLE and rag and state.user_id:
+        threading.Thread(target=load_conversations, daemon=True).start()
 
     chat_list = ft.ListView(
         expand=True,
@@ -1455,6 +1696,17 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             if RAG_AVAILABLE and rag and state.conversation_id:
                 try:
                     rag.save_user_message(state.conversation_id, msg)
+                    
+                    # Update conversation title if this is the first message
+                    messages = rag.get_conversation_history(state.conversation_id)
+                    if messages and len(messages) == 1:  # Only user message exists
+                        # Generate title from first message (max 50 chars)
+                        title = msg[:50] + "..." if len(msg) > 50 else msg
+                        rag.update_conversation_title(state.conversation_id, title)
+                        # Reload conversations to show updated title
+                        load_conversations()
+                        page.update()
+                        
                 except Exception as e:
                     print(f"⚠️ Failed to save user message: {e}")
             
@@ -2059,6 +2311,12 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         ),
         bgcolor=ft.colors.TRANSPARENT,
         center_title=True,
+        leading=ft.IconButton(
+            icon=ft.icons.MENU,
+            icon_color=state.text_color(),
+            on_click=lambda _: toggle_sidebar(),
+            tooltip="Conversations",
+        ),
         actions=[
             ft.IconButton(
                 icon=ft.icons.PERSON_OUTLINE,
@@ -3380,40 +3638,46 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         route="/home",
         appbar=appbar,
         controls=[
-            ft.Container(
-                expand=True,
-                gradient=ft.LinearGradient(
-                    begin=ft.alignment.top_center,
-                    end=ft.alignment.bottom_center,
-                    colors=(
-                        ["#1A0F2E", "#0D1B3E"] if _dark
-                        else ["#F5F3FF", "#EFF6FF"]
+            ft.Row([
+                # Sidebar with resize handle
+                sidebar_with_handle,
+                
+                # Main content
+                ft.Container(
+                    expand=True,
+                    gradient=ft.LinearGradient(
+                        begin=ft.alignment.top_center,
+                        end=ft.alignment.bottom_center,
+                        colors=(
+                            ["#1A0F2E", "#0D1B3E"] if _dark
+                            else ["#F5F3FF", "#EFF6FF"]
+                        ),
+                    ),
+                    content=ft.Column(
+                        [
+                            _cards_header,
+                            # Chat list wrapped in gesture detector for swipe detection
+                            ft.GestureDetector(
+                                content=chat_list,
+                                on_vertical_drag_update=_on_drag_update,
+                                expand=True,
+                            ),
+                            # Bottom section — always below the list, never overlaid
+                            panel_container,
+                            result_card,
+                            ft.Row(
+                                [chat_bar, mic_container],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                spacing=0,
+                            ),
+                        ],
+                        expand=True,
+                        spacing=0,
+                        tight=False,
                     ),
                 ),
-                content=ft.Column(
-                    [
-                        _cards_header,
-                        # Chat list wrapped in gesture detector for swipe detection
-                        ft.GestureDetector(
-                            content=chat_list,
-                            on_vertical_drag_update=_on_drag_update,
-                            expand=True,
-                        ),
-                        # Bottom section — always below the list, never overlaid
-                        panel_container,
-                        result_card,
-                        ft.Row(
-                            [chat_bar, mic_container],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            spacing=0,
-                        ),
-                    ],
-                    expand=True,
-                    spacing=0,
-                    tight=False,
-                ),
-            ),
+            ], spacing=0, expand=True),
         ],
         padding=0,
         bgcolor=state.bg_color(),

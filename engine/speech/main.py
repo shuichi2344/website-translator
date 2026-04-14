@@ -9,7 +9,14 @@ from datetime import datetime
 
 def process_voice_result(dialect, question, query, country="Malaysia", language="English"):
     """
-    Process voice/text question with user's country and language preferences
+    Process voice/text question following RAG architecture:
+    1. Query → Embedding
+    2. Embedding → Vector Database (ChromaDB)
+    3. Vector Database → Relevant Data
+    4. Relevant Data + Query → LLM
+    5. LLM → Response
+    
+    Only fetch fresh data (A→B→C→D) if Vector Database has no relevant data
     
     Args:
         dialect: Detected dialect from speech (can be overridden by language param)
@@ -33,70 +40,130 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
         print("Normalized query:", query)
     print("-" * 30)
 
-    # Search for government links from user's country
-    links = find_specific_gov_links(query, country_suffix)
-    if not links:
-        print("No official links found.")
-        return {
-            "answer": f"I couldn't find any relevant government sources from {country} for your question. Please make sure SERP_API_KEY is configured in your .env file, or try rephrasing your question.",
-            "sources": []
-        }
+    # ═══════════════════════════════════════════════════════════════════
+    # RAG RETRIEVAL PHASE
+    # Step 1: Query → Embedding
+    # Step 2: Embedding → Vector Database
+    # Step 3: Vector Database → Relevant Data
+    # ═══════════════════════════════════════════════════════════════════
+    
+    print("\n🔍 [RAG Step 1-3] Querying Vector Database (ChromaDB)...")
+    relevant_info = []
+    sources = []
+    
+    try:
+        # Query ChromaDB with embedded question
+        # min_similarity=0.6 means we need at least 60% similarity
+        relevant_info, sources = query_from_chroma(question, top_k=5, min_similarity=0.6)
+        
+        if relevant_info and len(relevant_info) >= 3:
+            print(f"✅ Found {len(relevant_info)} relevant chunks in Vector Database")
+            if sources:
+                print(f"   📎 From {len(sources)} source URLs")
+            print("\n--- Relevant Data Retrieved ---")
+            for i, snippet in enumerate(relevant_info, 1):
+                preview = snippet.replace('\n', ' ')[:150]
+                print(f"[{i}] {preview}...")
+        else:
+            if relevant_info:
+                print(f"ℹ️ Found {len(relevant_info)} chunks but below threshold (need 3+)")
+            else:
+                print("ℹ️ No relevant data found in Vector Database")
+            
+    except Exception as e:
+        print(f"⚠️ Error querying Vector Database: {e}")
+        relevant_info = []
+        sources = []
 
-    print(f"Found {len(links)} specific sources from {country}. Starting extraction...")
+    # ═══════════════════════════════════════════════════════════════════
+    # DATA PREPARATION PHASE (Only if Vector Database is empty)
+    # Step A: Raw Data Sources (Government websites)
+    # Step B: Information Extraction (Firecrawl)
+    # Step C: Chunking
+    # Step D: Embedding → Store in Vector Database
+    # ═══════════════════════════════════════════════════════════════════
+    
+    if not relevant_info or len(relevant_info) < 3:
+        print(f"\n📡 [Data Preparation] Vector Database has insufficient data, fetching fresh sources...")
+        
+        # Step A: Raw Data Sources
+        print(f"[Step A] Searching for government sources from {country}...")
+        links = find_specific_gov_links(query, country_suffix)
+        
+        if not links:
+            print("❌ No official links found.")
+            return {
+                "answer": f"I couldn't find any relevant government sources from {country} for your question. Please make sure SERP_API_KEY is configured in your .env file, or try rephrasing your question.",
+                "sources": []
+            }
 
-    # Extract and Chunk
-    all_chunks = get_chunks_from_list(links)
-    print(f"\nTotal unique chunks collected: {len(all_chunks)}")
+        print(f"✅ Found {len(links)} government sources")
 
-    if not all_chunks:
-        print("Extraction failed or no text found on pages.")
-        return {
-            "answer": f"I found some government sources from {country} but couldn't extract information from them. The websites might be unavailable or require authentication.",
-            "sources": links
-        }
+        # Step B: Information Extraction + Step C: Chunking
+        print(f"[Step B-C] Extracting and chunking information from sources...")
+        all_chunks, chunk_to_url_map = get_chunks_from_list(links)
+        print(f"✅ Extracted {len(all_chunks)} text chunks")
 
-    print("\nStoring data to chromadb...")
-    doc_id = f"gov_search_{country}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    ingest_to_chroma(doc_id, all_chunks)
+        if not all_chunks:
+            print("❌ Extraction failed or no text found on pages.")
+            return {
+                "answer": f"I found some government sources from {country} but couldn't extract information from them. The websites might be unavailable or require authentication.",
+                "sources": links
+            }
 
-    print(f"\nProcessing Question: {question}")
-    relevant_info = query_from_chroma(question, top_k=5) # Search for the most relevant 5 snippets
+        # Step D: Embedding → Store in Vector Database
+        print(f"[Step D] Storing embeddings in Vector Database with source URLs...")
+        doc_id = f"gov_search_{country}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        ingest_to_chroma(doc_id, all_chunks, source_urls=chunk_to_url_map)
+        print(f"✅ Stored in Vector Database with ID: {doc_id}")
 
-    print("\n--- Most Relevant Official Info Found ---")
-    for i, snippet in enumerate(relevant_info, 1):
-        # Print a short preview of what the AI is "reading"
-        preview = snippet.replace('\n', ' ')[:150]
-        print(f"[{i}] {preview}...")
+        # Now query again to get relevant chunks with sources
+        print(f"\n🔍 [RAG Step 1-3] Re-querying Vector Database with new data...")
+        relevant_info, sources = query_from_chroma(question, top_k=5, min_similarity=0.6)
+        
+        print("\n--- Most Relevant Data Retrieved ---")
+        for i, snippet in enumerate(relevant_info, 1):
+            preview = snippet.replace('\n', ' ')[:150]
+            print(f"[{i}] {preview}...")
+    else:
+        # Using cached data, sources already retrieved
+        links = sources if sources else []
 
-    # Generate Answer using Gemini in user's preferred language
-    final_answer = ""
-    print(f"\nDrafting your answer in {language}...")
+    # ═══════════════════════════════════════════════════════════════════
+    # GENERATION PHASE
+    # Step 4: Relevant Data + Query → LLM
+    # Step 5: LLM → Response
+    # ═══════════════════════════════════════════════════════════════════
+    
+    print(f"\n🤖 [RAG Step 4-5] Generating response with LLM...")
+    print(f"   Language: {language}")
+    print(f"   Context chunks: {len(relevant_info)}")
+    
     try:
         final_answer = generate_final_response(question, relevant_info, target_dialect)
 
         print("\n" + "="*40)
-        print("OFFICIAL ASSISTANT RESPONSE")
+        print("RESPONSE GENERATED")
         print("="*40)
         print(final_answer)
         print("="*40)
 
-        print(f"\nSources checked from {country}:")
-        for link in links:
-            print(f"- {link}")
+        if links:
+            print(f"\nSources used (fresh data from {country}):")
+            for link in links:
+                print(f"- {link}")
+        else:
+            print(f"\nUsing cached data from Vector Database")
 
     except Exception as e:
-        print(f"\nError generating response: {e}")
+        print(f"\n❌ Error generating response: {e}")
         print("Make sure your GEMINI_API_KEY is set correctly in the .env file.")
         return {
             "answer": f"I encountered an error while generating the response: {str(e)}. Please check your API keys in the .env file.",
-            "sources": links
+            "sources": links if links else []
         }
-
-    # Convert text to speech
-    # print("\nSpeaking the answer...")
-    # asyncio.run(speak_answer(final_answer))
 
     return {
         "answer": final_answer,
-        "sources": links
+        "sources": sources if sources else []
     }

@@ -101,7 +101,7 @@ class MySQLHandler:
     
     # ─── Conversation Management ─────────────────────────────────────────
     
-    def create_conversation(self, user_id: str, title: str = "New Conversation") -> Optional[str]:
+    def create_conversation(self, user_id: str, title: str = "New Chat") -> Optional[str]:
         """Create a new conversation and return conversation_id"""
         self.ensure_connection()
         cursor = self.connection.cursor()
@@ -119,6 +119,27 @@ class MySQLHandler:
         except Error as e:
             print(f"❌ Error creating conversation: {e}")
             return None
+        finally:
+            cursor.close()
+    
+    def update_conversation_title(self, conversation_id: str, title: str) -> bool:
+        """Update conversation title"""
+        self.ensure_connection()
+        cursor = self.connection.cursor()
+        
+        try:
+            query = """
+                UPDATE conversations 
+                SET title = %s 
+                WHERE conversation_id = %s
+            """
+            cursor.execute(query, (title, conversation_id))
+            self.connection.commit()
+            print(f"✅ Conversation title updated: {conversation_id}")
+            return True
+        except Error as e:
+            print(f"❌ Error updating conversation title: {e}")
+            return False
         finally:
             cursor.close()
     

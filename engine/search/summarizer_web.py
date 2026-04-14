@@ -230,8 +230,14 @@ def get_messages(conversation_id):
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """
-    Main chat endpoint with RAG integration
-    Handles both website Q&A and general chat
+    Main chat endpoint following RAG architecture:
+    1. Query → Embedding
+    2. Embedding → Vector Database (ChromaDB)
+    3. Vector Database → Relevant Data
+    4. Relevant Data + Query → LLM
+    5. LLM → Response
+    
+    Only fetch fresh data (A→B→C→D) if Vector Database has no relevant data
     """
     if not rag_integration:
         # Fallback to old behavior if database not available
@@ -250,28 +256,144 @@ def chat():
         
         # Create conversation if new
         if not conversation_id and user_id:
-            title = message[:50] + "..." if len(message) > 50 else message
-            conversation_id = rag_integration.create_conversation(user_id, title)
+            conversation_id = rag_integration.create_conversation(user_id, "New Chat")
         
         # Save user message with embedding
         if conversation_id:
             rag_integration.save_user_message(conversation_id, message)
+            
+            # Update conversation title if this is the first message
+            try:
+                messages = rag_integration.get_conversation_history(conversation_id)
+                if messages and len(messages) == 1:  # Only user message exists
+                    # Generate title from first message (max 50 chars)
+                    title = message[:50] + "..." if len(message) > 50 else message
+                    rag_integration.update_conversation_title(conversation_id, title)
+            except Exception as e:
+                print(f"⚠️ Failed to update conversation title: {e}")
         
-        # Get context using RAG
-        context = None
-        if conversation_id:
-            context = rag_integration.get_context_for_response(
-                query=message,
-                conversation_id=conversation_id,
-                include_history=True
-            )
+        # ═══════════════════════════════════════════════════════════════════
+        # RAG RETRIEVAL PHASE
+        # Step 1: Query → Embedding
+        # Step 2: Embedding → Vector Database
+        # Step 3: Vector Database → Relevant Data
+        # ═══════════════════════════════════════════════════════════════════
         
-        # Generate response using existing summarizer
+        print("\n🔍 [RAG Step 1-3] Querying Vector Database (ChromaDB)...")
+        relevant_chunks = []
+        cached_sources = []
+        
+        try:
+            from engine.speech.embedding import query_from_chroma
+            from engine.speech.response_gen import generate_final_response, get_dialect_from_language
+            
+            # Query ChromaDB with embedded question
+            # min_similarity=0.6 means we need at least 60% similarity
+            relevant_chunks, cached_sources = query_from_chroma(message, top_k=5, min_similarity=0.6)
+            
+            if relevant_chunks and len(relevant_chunks) >= 3:
+                print(f"✅ Found {len(relevant_chunks)} relevant chunks in Vector Database")
+                if cached_sources:
+                    print(f"   📎 From {len(cached_sources)} source URLs")
+            else:
+                if relevant_chunks:
+                    print(f"ℹ️ Found {len(relevant_chunks)} chunks but below threshold (need 3+)")
+                else:
+                    print("ℹ️ No relevant data found in Vector Database")
+                
+        except Exception as e:
+            print(f"⚠️ Error querying Vector Database: {e}")
+            relevant_chunks = []
+            cached_sources = []
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # GENERATION PHASE (if we have data in Vector Database)
+        # Step 4: Relevant Data + Query → LLM
+        # Step 5: LLM → Response
+        # ═══════════════════════════════════════════════════════════════════
+        
+        if relevant_chunks and len(relevant_chunks) >= 3:
+            print(f"\n🤖 [RAG Step 4-5] Generating response from Vector Database...")
+            
+            # Map language code to full language name
+            lang_map = {
+                'en': 'English', 'ms': 'Bahasa Melayu', 'id': 'Bahasa Indonesia',
+                'th': 'Thai', 'vi': 'Vietnamese', 'tl': 'Filipino/Tagalog',
+                'my': 'Burmese', 'km': 'Khmer', 'lo': 'Lao', 'ta': 'Tamil',
+                'zh-cn': 'Chinese (Simplified)'
+            }
+            language_name = lang_map.get(target_lang, 'English')
+            dialect = get_dialect_from_language(language_name)
+            
+            # Generate answer from Vector Database data
+            cached_answer = generate_final_response(message, relevant_chunks, dialect)
+            print("✅ Response generated from cached Vector Database data")
+            
+            result = {
+                'answer': cached_answer,
+                'summary': cached_answer,
+                'sources': cached_sources if cached_sources else [],
+                'cached': True
+            }
+            
+            # Save bot response
+            if conversation_id:
+                rag_integration.save_bot_message(conversation_id, cached_answer)
+            
+            result['conversation_id'] = conversation_id
+            return jsonify({'success': True, 'data': result})
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # DATA PREPARATION PHASE (Only if Vector Database is empty)
+        # Step A: Raw Data Sources
+        # Step B: Information Extraction
+        # Step C: Chunking
+        # Step D: Embedding → Store in Vector Database
+        # ═══════════════════════════════════════════════════════════════════
+        
+        print(f"\n📡 [Data Preparation] Vector Database has insufficient data, fetching fresh sources...")
         summarizer = DocumentSummarizer(target_lang=target_lang)
         
         if url:
-            # Website Q&A with RAG context
+            # Step A-B: Extract from website
+            print(f"[Step A-B] Extracting information from website...")
             result = summarizer.rag_qa_website(url, message)
+            
+            # Step C-D: Store in Vector Database
+            if result and result.get('sources'):
+                try:
+                    from engine.speech.embedding import ingest_to_chroma
+                    from datetime import datetime
+                    doc_id = f"browser_web_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    ingest_to_chroma(doc_id, result['sources'])
+                    print(f"✅ [Step D] Stored website content in Vector Database")
+                except Exception as e:
+                    print(f"⚠️ Failed to store in Vector Database: {e}")
+        else:
+            # General Q&A - not yet implemented
+            result = {'summary': 'Response generation not yet implemented for general chat'}
+        
+        # Save bot response
+        if conversation_id and result:
+            bot_message = result.get('summary', result.get('answer', ''))
+            rag_integration.save_bot_message(conversation_id, bot_message)
+        
+        # Add context info to response
+        if result:
+            result['conversation_id'] = conversation_id
+        
+        return jsonify({'success': True, 'data': result})
+        
+    except Exception as e:
+        print(f"❌ Chat error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+                    doc_id = f"browser_web_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    ingest_to_chroma(doc_id, result['sources'])
+                    print(f"✅ Stored website content in ChromaDB for future use")
+                except Exception as e:
+                    print(f"⚠️ Failed to store in ChromaDB: {e}")
         else:
             # General Q&A (could integrate with other sources)
             result = {'summary': 'Response generation not yet implemented for general chat'}

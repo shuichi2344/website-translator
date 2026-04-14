@@ -189,9 +189,13 @@ class RAGIntegration:
         """Get full conversation history from MySQL"""
         return self.mysql.get_conversation_messages(conversation_id)
     
-    def create_conversation(self, user_id: str, title: str = "New Conversation") -> Optional[str]:
+    def create_conversation(self, user_id: str, title: str = "New Chat") -> Optional[str]:
         """Create new conversation"""
         return self.mysql.create_conversation(user_id, title)
+    
+    def update_conversation_title(self, conversation_id: str, title: str) -> bool:
+        """Update conversation title"""
+        return self.mysql.update_conversation_title(conversation_id, title)
     
     # ─── RAG-Enhanced Response Generation ────────────────────────────────
     
