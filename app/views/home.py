@@ -2619,7 +2619,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
     def _iv_echo_answer(text: str):
         """Show the user's last answer below the card."""
-        _iv_last_answer_text.value = f'You said: "{text}"'
+        _iv_last_answer_text.value = text
         _iv_status_text.value = ""
         page.update()
 
@@ -2684,6 +2684,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         if not ai:
             return
 
+        _iv_editing[0] = True   # picker is active
+        _iv_edit_key[0] = None  # no specific field selected yet
+
         def _pick(key):
             """User tapped a field chip — pre-fill the input and switch to edit mode."""
             _iv_editing[0] = True
@@ -2736,7 +2739,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         )
         _iv_question_card.height = 320
         _iv_question_card.border = ft.border.all(2, ft.colors.ORANGE_400)
-        _iv_last_answer_text.value = "Select a field above to edit, or type 'done' to confirm."
+        _iv_last_answer_text.value = "Select a field to edit, or type 'done' to proceed to signature."
         _iv_status_text.value = ""
         _interview_progress_text.value = ""
         page.update()
@@ -2889,43 +2892,51 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             key = _iv_edit_key[0]
             ai = _iv_ai[0]
             if msg.lower() in ("done", "confirm", "yes", "ok", "siap"):
-                # Done editing — restore summary card
                 _iv_editing[0] = False
                 _iv_edit_key[0] = None
                 _interview_field.value = ""
-                tts_summary = ai.get_tts_summary() if ai else ""
-                _iv_question_card.content = ft.Stack(
-                    [
-                        ft.Container(
-                            content=ft.Column(
-                                [_iv_help_icon, _iv_question_text],
-                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                alignment=ft.MainAxisAlignment.CENTER,
-                                spacing=16,
-                                scroll=ft.ScrollMode.AUTO,
+                if key is None:
+                    # User typed "done" from the picker — go straight to signature
+                    _iv_confirming[0] = False
+                    _iv_sig_path[0] = None
+                    _sig_points.clear()
+                    sig_modal.open = True
+                    page.update()
+                else:
+                    # User typed "done" while editing a field — restore summary
+                    tts_summary = ai.get_tts_summary() if ai else ""
+                    _iv_question_card.content = ft.Stack(
+                        [
+                            ft.Container(
+                                content=ft.Column(
+                                    [_iv_help_icon, _iv_question_text],
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                    alignment=ft.MainAxisAlignment.CENTER,
+                                    spacing=16,
+                                    scroll=ft.ScrollMode.AUTO,
+                                ),
+                                alignment=ft.alignment.center,
+                                expand=True,
+                                padding=ft.padding.only(bottom=36),
                             ),
-                            alignment=ft.alignment.center,
-                            expand=True,
-                            padding=ft.padding.only(bottom=36),
-                        ),
-                        ft.Container(
-                            content=_iv_listen_btn,
-                            alignment=ft.alignment.bottom_left,
-                            left=0, bottom=0,
-                        ),
-                    ],
-                    expand=True,
-                )
-                _iv_question_card.height = 220
-                _iv_question_text.value = tts_summary
-                _iv_question_text.size = state.font_sp() - 1
-                _iv_help_icon.visible = False
-                _iv_question_card.border = ft.border.all(2, ft.colors.GREEN_400)
-                _iv_last_answer_text.value = "Type 'yes' to confirm or 'no' to edit more."
-                _iv_status_text.value = ""
-                _interview_progress_text.value = ""
-                _iv_confirming[0] = True
-                page.update()
+                            ft.Container(
+                                content=_iv_listen_btn,
+                                alignment=ft.alignment.bottom_left,
+                                left=0, bottom=0,
+                            ),
+                        ],
+                        expand=True,
+                    )
+                    _iv_question_card.height = 220
+                    _iv_question_text.value = tts_summary
+                    _iv_question_text.size = state.font_sp() - 1
+                    _iv_help_icon.visible = False
+                    _iv_question_card.border = ft.border.all(2, ft.colors.GREEN_400)
+                    _iv_last_answer_text.value = "Type 'yes' to confirm or 'no' to edit more."
+                    _iv_status_text.value = ""
+                    _interview_progress_text.value = ""
+                    _iv_confirming[0] = True
+                    page.update()
             elif key and ai:
                 # Save new value and return to picker
                 _iv_add_bubble(msg, "user")
@@ -3000,7 +3011,12 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     _os.remove(tmp)
                     # Collapse spelled-out input before echoing and submitting
                     from engine.insert_doc.document_LLM import _collapse_spelled
-                    text = _collapse_spelled(text)
+                    _current_label = ""
+                    _ai = _iv_ai[0]
+                    if _ai and _ai.current_field_index < len(_ai.fields):
+                        _f = _ai.fields[_ai.current_field_index]
+                        _current_label = _f.get("label") or _f.get("original_label") or ""
+                    text = _collapse_spelled(text, label=_current_label)
 
                 def _done(t=text):
                     _iv_is_processing[0] = False
