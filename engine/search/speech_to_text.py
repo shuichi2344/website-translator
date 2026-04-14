@@ -77,7 +77,7 @@ def get_llm_instance():
 # UTILITIES
 # ==========================
 
-def llm_process(text, task):
+def llm_process(text, task, country: str = "Malaysia"):
     if not text or len(text) < 2:
         return {"dialect": "N/A", "question": "No input detected", "query": "N/A"}
 
@@ -131,7 +131,7 @@ def llm_process(text, task):
         print(f"⚠️ LLM Error: {e}")
         return {"dialect": "N/A", "question": "N/A", "query": "N/A"}
 
-def transcribe_audio(filepath: str, *, normalize_to_question: bool = False) -> str:
+def transcribe_audio(filepath: str, *, normalize_to_question: bool = False, country: str = "Malaysia") -> str:
     """
     Transcribe audio for the web app without requiring ffmpeg.
     The web UI will upload WAV (PCM) so we can decode via libsndfile (soundfile).
@@ -161,14 +161,11 @@ def transcribe_audio(filepath: str, *, normalize_to_question: bool = False) -> s
     if not raw_text:
         return ""
 
-    # By default, return the raw transcription (what the user spoke).
-    # Normalization into a "clean question" is optional and should be explicitly requested.
     if normalize_to_question:
-        normalized = llm_process(raw_text, "question").get("question")
+        normalized = llm_process(raw_text, "question", country=country).get("question")
         if isinstance(normalized, str) and normalized.strip():
             return normalized.strip()
 
-    # Fallback / default
     return raw_text
 
 

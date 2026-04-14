@@ -1666,7 +1666,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         sf.write(tmp_path, audio_np, 16000)
                         # Use preloaded transcribe_audio function
                         _, _, _, _, transcribe_audio = _get_preloaded_modules()
-                        text = transcribe_audio(tmp_path, normalize_to_question=False) if transcribe_audio else ""
+                        text = transcribe_audio(tmp_path, normalize_to_question=False, country=state.country or "Malaysia") if transcribe_audio else ""
                         os.remove(tmp_path)
                     else:
                         text = ""
@@ -1727,7 +1727,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                             tmp_path = f.name
                         sf.write(tmp_path, audio_np, 16000)
                         _, _, _, _, transcribe_audio = _get_preloaded_modules()
-                        text = transcribe_audio(tmp_path, normalize_to_question=False) if transcribe_audio else ""
+                        text = transcribe_audio(tmp_path, normalize_to_question=False, country=state.country or "Malaysia") if transcribe_audio else ""
                         os.remove(tmp_path)
 
                     def _done(t=text):
@@ -2854,7 +2854,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         tmp = f.name
                     sf.write(tmp, audio_np, 16000)
                     _, _, _, _, transcribe_audio = _get_preloaded_modules()
-                    text = transcribe_audio(tmp, normalize_to_question=False) if transcribe_audio else ""
+                    text = transcribe_audio(tmp, normalize_to_question=False, country=state.country or "Malaysia") if transcribe_audio else ""
                     _os.remove(tmp)
 
                 def _done(t=text):
