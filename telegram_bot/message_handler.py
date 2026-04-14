@@ -780,8 +780,8 @@ Answer (in simple, clear English):"""
                 from engine.speech.embedding import query_from_chroma
                 
                 # Query ChromaDB with embedded question
-                # min_similarity=0.6 means we need at least 60% similarity
-                cached_chunks, cached_sources = query_from_chroma(message_text, top_k=5, min_similarity=0.6)
+                # min_similarity=0.4 means we need at least 40% similarity
+                cached_chunks, cached_sources = query_from_chroma(message_text, top_k=5, min_similarity=0.4)
                 
                 if cached_chunks and len(cached_chunks) >= 3:
                     print(f"✅ Found {len(cached_chunks)} relevant chunks in Vector Database")

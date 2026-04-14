@@ -288,8 +288,8 @@ def chat():
             from engine.speech.response_gen import generate_final_response, get_dialect_from_language
             
             # Query ChromaDB with embedded question
-            # min_similarity=0.6 means we need at least 60% similarity
-            relevant_chunks, cached_sources = query_from_chroma(message, top_k=5, min_similarity=0.6)
+            # min_similarity=0.4 means we need at least 40% similarity
+            relevant_chunks, cached_sources = query_from_chroma(message, top_k=5, min_similarity=0.4)
             
             if relevant_chunks and len(relevant_chunks) >= 3:
                 print(f"✅ Found {len(relevant_chunks)} relevant chunks in Vector Database")

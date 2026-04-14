@@ -813,50 +813,75 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             fn()
 
     def _set_buttons_loading(loading: bool):
-        for btn in (doc_summarise_btn, doc_ask_btn, web_summarise_btn, web_ask_btn):
+        for btn in (doc_summarise_btn, web_summarise_btn):
             btn.disabled = loading
-        _panel_inner.opacity = 0.3 if loading else 1.0
-        _loading_overlay.visible = loading
         page.update()
 
     def on_doc_summarise(_):
         filepath = selected_file[0]
         lang_code = LANG_CODE_MAP.get(doc_lang_dropdown.value or "English", "en")
+        
+        # Hide the document panel immediately
+        set_mode(None)
+        
         _add_bubble(f"Summarising document: {selected_file_name[0]}", "user")
-        # Add thinking indicator
-        thinking_bubble = _add_bubble("Thinking…", "status")
+        # Add status indicator with real-time updates
+        status_bubble = _add_bubble("📄 Processing document...", "status")
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Update status: Extracting text
+                def _update_status_extract():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "📖 Extracting text..."
+                        page.update()
+                _ui_call(_update_status_extract)
+                
                 # Use preloaded DocumentSummarizer
                 _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
+                
+                # Update status: Summarizing
+                def _update_status_summarize():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "✨ Summarizing content..."
+                        page.update()
+                _ui_call(_update_status_summarize)
+                
                 result = summarizer.process_document(filepath)
                 if result:
                     summary = result.get("summary", "")
                     orig = result.get("word_count", 0)
                     summ = result.get("summary_word_count", 0)
                     reduction = round(100 - (summ / orig * 100)) if orig else 0
-                    _ui_call(lambda: set_mode(None))
-                    # Remove thinking bubble before adding result
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
-                    _add_bubble_safe(f"📄 Document Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "result")
+                    # Remove status bubble before adding result
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
+                    # Use bot bubble with TTS support
+                    _add_bubble_safe(f"📄 Document Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot")
+                    
+                    # Save to database
+                    rag = get_rag_instance()
+                    if RAG_AVAILABLE and rag and state.conversation_id:
+                        try:
+                            rag.save_bot_message(state.conversation_id, f"Document Summary: {summary}")
+                        except Exception as e:
+                            print(f"⚠️ Failed to save bot message: {e}")
                 else:
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
                     _add_bubble_safe("⚠️ Failed to process document.", "status")
             except Exception as exc:
-                def _remove_thinking():
-                    if thinking_bubble in chat_list.controls:
-                        chat_list.controls.remove(thinking_bubble)
-                _ui_call(_remove_thinking)
+                def _remove_status():
+                    if status_bubble in chat_list.controls:
+                        chat_list.controls.remove(status_bubble)
+                _ui_call(_remove_status)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -869,42 +894,87 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         lang_code = LANG_CODE_MAP.get(doc_lang_dropdown.value or "English", "en")
 
         if not question:
-            chat_field.hint_text = "Type your question then tap Ask a Question..."
-            page.update()
-            return
+            return  # Silently ignore if no question
 
+        # Hide the document panel immediately
+        set_mode(None)
+
+        # Show document attachment above the question (like ChatGPT/Gemini)
+        doc_attachment = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.DESCRIPTION_OUTLINED, size=16, color=BUBBLE_USER_FG),
+                ft.Text(selected_file_name[0], size=state.font_sp() - 2, color=BUBBLE_USER_FG, weight=ft.FontWeight.W_500),
+            ], spacing=6),
+            bgcolor=ft.colors.with_opacity(0.2, accent),
+            border_radius=8,
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+        )
+        attachment_row = ft.Row([doc_attachment], alignment=ft.MainAxisAlignment.END)
+        chat_list.controls.append(attachment_row)
+        
         _add_bubble(question, "user")
-        # Add thinking indicator
-        thinking_bubble = _add_bubble("Thinking…", "status")
+        # Add status indicator with real-time updates
+        status_bubble = _add_bubble("📄 Processing document...", "status")
         chat_field.value = ""
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Update status: Extracting text
+                def _update_status_extract():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "📖 Extracting text..."
+                        page.update()
+                _ui_call(_update_status_extract)
+                
                 # Use preloaded DocumentSummarizer
                 _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
+                
+                # Update status: Analyzing
+                def _update_status_analyze():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "🔍 Analyzing content..."
+                        page.update()
+                _ui_call(_update_status_analyze)
+                
                 result = summarizer.rag_qa_document(filepath, question)
+                
+                # Update status: Generating answer
+                def _update_status_generate():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "✨ Generating answer..."
+                        page.update()
+                _ui_call(_update_status_generate)
+                
                 if result:
-                    _ui_call(lambda: set_mode(None))
-                    # Remove thinking bubble before adding result
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
-                    _add_bubble_safe(result.get("summary", ""), "result")
+                    # Remove status bubble before adding result
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
+                    # Use bot bubble with TTS support instead of result
+                    _add_bubble_safe(result.get("summary", ""), "bot")
+                    
+                    # Save to database
+                    rag = get_rag_instance()
+                    if RAG_AVAILABLE and rag and state.conversation_id:
+                        try:
+                            rag.save_bot_message(state.conversation_id, result.get("summary", ""))
+                        except Exception as e:
+                            print(f"⚠️ Failed to save bot message: {e}")
                 else:
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
                     _add_bubble_safe("⚠️ Could not answer that question.", "status")
             except Exception as exc:
-                def _remove_thinking():
-                    if thinking_bubble in chat_list.controls:
-                        chat_list.controls.remove(thinking_bubble)
-                _ui_call(_remove_thinking)
+                def _remove_status():
+                    if status_bubble in chat_list.controls:
+                        chat_list.controls.remove(status_bubble)
+                _ui_call(_remove_status)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -914,35 +984,62 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def on_web_summarise(_):
         url = url_field.value or ""
         lang_code = LANG_CODE_MAP.get(web_lang_dropdown.value or "English", "en")
+        
+        # Hide the website panel immediately
+        set_mode(None)
+        
         _add_bubble(f"Summarising: {url}", "user")
-        # Add thinking indicator
-        thinking_bubble = _add_bubble("Thinking…", "status")
+        # Add status indicator with real-time updates
+        status_bubble = _add_bubble("🌐 Connecting to website...", "status")
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Update status: Retrieving content
+                def _update_status_retrieve():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "📥 Retrieving content..."
+                        page.update()
+                _ui_call(_update_status_retrieve)
+                
                 # Use preloaded DocumentSummarizer
                 _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
+                
+                # Update status: Summarizing
+                def _update_status_summarize():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "✨ Summarizing content..."
+                        page.update()
+                _ui_call(_update_status_summarize)
+                
                 result = summarizer.process_website(url, crawl_depth=1, max_sublinks=3)
                 if result:
                     summary = result.get("summary", "")
                     orig = result.get("word_count", 0)
                     summ = result.get("summary_word_count", 0)
                     reduction = round(100 - (summ / orig * 100)) if orig else 0
-                    _ui_call(lambda: set_mode(None))
-                    # Remove thinking bubble before adding result
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
-                    _add_bubble_safe(f"🌐 Website Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "result")
+                    # Remove status bubble before adding result
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
+                    # Use bot bubble with TTS support
+                    _add_bubble_safe(f"🌐 Website Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot")
+                    
+                    # Save to database
+                    rag = get_rag_instance()
+                    if RAG_AVAILABLE and rag and state.conversation_id:
+                        try:
+                            rag.save_bot_message(state.conversation_id, f"Website Summary: {summary}")
+                        except Exception as e:
+                            print(f"⚠️ Failed to save bot message: {e}")
                 else:
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
                     _add_bubble_safe("⚠️ Failed to process website.", "status")
             except Exception as exc:
                 def _remove_thinking():
@@ -961,42 +1058,87 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         lang_code = LANG_CODE_MAP.get(web_lang_dropdown.value or "English", "en")
 
         if not question:
-            chat_field.hint_text = "Type your question then tap Ask a Question..."
-            page.update()
-            return
+            return  # Silently ignore if no question
 
+        # Hide the website panel immediately
+        set_mode(None)
+
+        # Show website attachment above the question (like ChatGPT/Gemini)
+        web_attachment = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.LANGUAGE, size=16, color=BUBBLE_USER_FG),
+                ft.Text(url if len(url) <= 50 else url[:47] + "...", size=state.font_sp() - 2, color=BUBBLE_USER_FG, weight=ft.FontWeight.W_500),
+            ], spacing=6),
+            bgcolor=ft.colors.with_opacity(0.2, accent),
+            border_radius=8,
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+        )
+        attachment_row = ft.Row([web_attachment], alignment=ft.MainAxisAlignment.END)
+        chat_list.controls.append(attachment_row)
+        
         _add_bubble(question, "user")
-        # Add thinking indicator
-        thinking_bubble = _add_bubble("Thinking…", "status")
+        # Add status indicator with real-time updates
+        status_bubble = _add_bubble("🌐 Connecting to website...", "status")
         chat_field.value = ""
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Update status: Retrieving content
+                def _update_status_retrieve():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "📥 Retrieving content..."
+                        page.update()
+                _ui_call(_update_status_retrieve)
+                
                 # Use preloaded DocumentSummarizer
                 _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
+                
+                # Update status: Analyzing
+                def _update_status_analyze():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "🔍 Analyzing content..."
+                        page.update()
+                _ui_call(_update_status_analyze)
+                
                 result = summarizer.rag_qa_website(url, question)
+                
+                # Update status: Generating answer
+                def _update_status_generate():
+                    if status_bubble in chat_list.controls:
+                        status_bubble.controls[0].content.value = "✨ Generating answer..."
+                        page.update()
+                _ui_call(_update_status_generate)
+                
                 if result:
-                    _ui_call(lambda: set_mode(None))
-                    # Remove thinking bubble before adding result
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
-                    _add_bubble_safe(result.get("summary", ""), "result")
+                    # Remove status bubble before adding result
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
+                    # Use bot bubble with TTS support instead of result
+                    _add_bubble_safe(result.get("summary", ""), "bot")
+                    
+                    # Save to database
+                    rag = get_rag_instance()
+                    if RAG_AVAILABLE and rag and state.conversation_id:
+                        try:
+                            rag.save_bot_message(state.conversation_id, result.get("summary", ""))
+                        except Exception as e:
+                            print(f"⚠️ Failed to save bot message: {e}")
                 else:
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
                     _add_bubble_safe("⚠️ Could not answer that question.", "status")
             except Exception as exc:
-                def _remove_thinking():
-                    if thinking_bubble in chat_list.controls:
-                        chat_list.controls.remove(thinking_bubble)
-                _ui_call(_remove_thinking)
+                def _remove_status():
+                    if status_bubble in chat_list.controls:
+                        chat_list.controls.remove(status_bubble)
+                _ui_call(_remove_status)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -1004,9 +1146,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         _run_in_thread(_work)
 
     doc_summarise_btn  = _action_btn("Summarize Document", ft.icons.AUTO_AWESOME_OUTLINED, on_doc_summarise)
-    doc_ask_btn        = _action_btn("Ask a Question",     ft.icons.CHAT_OUTLINED,          on_doc_ask)
     web_summarise_btn  = _action_btn("Summarize Website",  ft.icons.AUTO_AWESOME_OUTLINED,  on_web_summarise)
-    web_ask_btn        = _action_btn("Ask a Question",     ft.icons.CHAT_OUTLINED,          on_web_ask)
 
     def _refresh_summarise_btn():
         has_input = (active_mode[0] == "document" and selected_file[0] is not None) or \
@@ -1031,7 +1171,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             form_panel,
             ft.Container(
                 content=ft.Row(
-                    [doc_summarise_btn, doc_ask_btn, web_summarise_btn, web_ask_btn],
+                    [doc_summarise_btn, web_summarise_btn],
                     spacing=8,
                 ),
                 padding=ft.padding.only(top=4, bottom=8),
@@ -1041,25 +1181,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         spacing=0,
     )
 
-    # Loading overlay — 50% black scrim + centered spinner
-    _loading_overlay = ft.Container(
-        content=ft.ProgressRing(color=accent, width=40, height=40, stroke_width=4),
-        alignment=ft.alignment.center,
-        bgcolor=ft.colors.with_opacity(0.3, "#000000"),
-        border_radius=ft.border_radius.only(top_left=20, top_right=20),
-        visible=False,
-        left=0,
-        right=0,
-        top=0,
-        bottom=0,
-    )
-
-    # Stack: content behind, overlay on top
+    # Panel container without loading overlay (using real-time status bubbles instead)
     panel_container = ft.Container(
-        content=ft.Stack(
-            [_panel_inner, _loading_overlay],
-            expand=True,
-        ),
+        content=_panel_inner,
         bgcolor=PANEL_BG,
         border_radius=ft.border_radius.only(top_left=20, top_right=20),
         padding=ft.padding.symmetric(horizontal=16, vertical=12),
@@ -1085,14 +1209,10 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         form_panel.visible = mode == "form"
         if mode is None:
             doc_summarise_btn.visible = False
-            doc_ask_btn.visible       = False
             web_summarise_btn.visible = False
-            web_ask_btn.visible       = False
         else:
             doc_summarise_btn.visible = mode == "document"
-            doc_ask_btn.visible       = mode == "document"
             web_summarise_btn.visible = mode == "web"
-            web_ask_btn.visible       = mode == "web"
             # Summarize disabled until valid input provided
             doc_summarise_btn.disabled = selected_file[0] is None
             web_summarise_btn.disabled = not url_valid[0]
@@ -1686,7 +1806,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         else:
             # General chat mode - use voice processing pipeline
             _add_bubble(msg, "user")
-            thinking_bubble = _add_bubble("Thinking…", "status")
+            status_bubble = _add_bubble("🔍 Searching knowledge base...", "status")
             chat_field.value = ""
             mic_icon.name = ft.icons.MIC_ROUNDED
             page.update()
@@ -1712,12 +1832,34 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             
             def _process_text_question():
                 try:
+                    # Update status: Analyzing question
+                    def _update_status_analyze():
+                        if status_bubble in chat_list.controls:
+                            status_bubble.controls[0].content.value = "🤔 Analyzing question..."
+                            page.update()
+                    _ui_call(_update_status_analyze)
+                    
                     # Use preloaded modules
                     _, process_voice_result, _, _, _ = _get_preloaded_modules()
+                    
+                    # Update status: Retrieving information
+                    def _update_status_retrieve():
+                        if status_bubble in chat_list.controls:
+                            status_bubble.controls[0].content.value = "📚 Retrieving information..."
+                            page.update()
+                    _ui_call(_update_status_retrieve)
                     
                     # Process the question with user's country and language preferences
                     print(f"Processing text question: {msg}")
                     print(f"User country: {state.country}, User language: {state.language}")
+                    
+                    # Update status: Generating answer
+                    def _update_status_generate():
+                        if status_bubble in chat_list.controls:
+                            status_bubble.controls[0].content.value = "✨ Generating answer..."
+                            page.update()
+                    _ui_call(_update_status_generate)
+                    
                     response = process_voice_result(
                         dialect="en",  # Detected dialect (not used when language is specified)
                         question=msg,
@@ -1729,9 +1871,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     
                     # Update UI with response
                     def _show_response():
-                        # Remove thinking bubble
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
+                        # Remove status bubble
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
                         
                         if response:
                             # response is now a dict with 'answer' and 'sources'
@@ -1771,8 +1913,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     
                 except Exception as exc:
                     def _show_error():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
                         _add_bubble(f"⚠️ Error: {exc}", "status")
                         page.update()
                     _ui_call(_show_error)
@@ -2022,8 +2164,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 question = results.get("question")
                 query = results.get("query")
 
-                # Add thinking indicator
-                thinking_bubble = [None]
+                # Add status indicator
+                status_bubble = [None]
                 
                 def set_processing():
                     is_processing[0] = True
@@ -2035,8 +2177,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     # Show transcript as user bubble
                     if question:
                         _add_bubble(question, "user")
-                    # Add thinking indicator
-                    thinking_bubble[0] = _add_bubble("Thinking…", "status")
+                    # Add status indicator with real-time updates
+                    status_bubble[0] = _add_bubble("🔍 Searching knowledge base...", "status")
                     page.update()
 
                 if hasattr(page, "call_from_thread"):
@@ -2044,8 +2186,42 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 else:
                     set_processing()
 
+                # Update status: Analyzing question
+                def update_status_analyze():
+                    if status_bubble[0] and status_bubble[0] in chat_list.controls:
+                        status_bubble[0].controls[0].content.value = "🤔 Analyzing question..."
+                        page.update()
+                
+                if hasattr(page, "call_from_thread"):
+                    page.call_from_thread(update_status_analyze)
+                else:
+                    update_status_analyze()
+
                 # ✅ CALL YOUR MAIN LOGIC HERE - Use preloaded modules
                 _, process_voice_result, speak_answer, _, _ = _get_preloaded_modules()
+                
+                # Update status: Retrieving information
+                def update_status_retrieve():
+                    if status_bubble[0] and status_bubble[0] in chat_list.controls:
+                        status_bubble[0].controls[0].content.value = "📚 Retrieving information..."
+                        page.update()
+                
+                if hasattr(page, "call_from_thread"):
+                    page.call_from_thread(update_status_retrieve)
+                else:
+                    update_status_retrieve()
+                
+                # Update status: Generating answer
+                def update_status_generate():
+                    if status_bubble[0] and status_bubble[0] in chat_list.controls:
+                        status_bubble[0].controls[0].content.value = "✨ Generating answer..."
+                        page.update()
+                
+                if hasattr(page, "call_from_thread"):
+                    page.call_from_thread(update_status_generate)
+                else:
+                    update_status_generate()
+                
                 response = process_voice_result(
                     dialect=dialect,
                     question=question,
@@ -2063,9 +2239,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     mic_circle.bgcolor = None
                     chat_field.value = ""
 
-                    # Remove thinking bubble
-                    if thinking_bubble[0] and thinking_bubble[0] in chat_list.controls:
-                        chat_list.controls.remove(thinking_bubble[0])
+                    # Remove status bubble
+                    if status_bubble[0] and status_bubble[0] in chat_list.controls:
+                        chat_list.controls.remove(status_bubble[0])
 
                     if response:
                         _show_result_card(response)

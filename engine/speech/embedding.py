@@ -12,33 +12,8 @@ if hf_token: # Authenticate with Hugging Face
 else:
     print("Error: HF_TOKEN not found in .env file")
 
-# Load the Gemma model (768 dimensions) with increased timeout
-# Set environment variables to increase timeout and enable offline mode if cached
-os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '120'  # 120 seconds timeout
-os.environ['TRANSFORMERS_OFFLINE'] = '0'  # Allow online access but prefer cache
-
-print("📦 Loading google/embeddinggemma-300m...")
-try:
-    # Try loading with local_files_only first (fastest if cached)
-    try:
-        model = SentenceTransformer('google/embeddinggemma-300m', local_files_only=True)
-        print("✅ Embedding model loaded from local cache")
-    except Exception:
-        # Not cached, download with timeout
-        print("   Model not cached locally, downloading from Hugging Face...")
-        model = SentenceTransformer('google/embeddinggemma-300m')
-        print("✅ Embedding model downloaded and loaded successfully")
-except Exception as e:
-    print(f"❌ Error loading embedding model: {e}")
-    print("   This might be due to:")
-    print("   1. Slow internet connection")
-    print("   2. Hugging Face servers being slow")
-    print("   3. Network firewall blocking Hugging Face")
-    print("   Retrying with longer timeout (5 minutes)...")
-    # Retry with even longer timeout
-    os.environ['HF_HUB_DOWNLOAD_TIMEOUT'] = '300'  # 5 minutes
-    model = SentenceTransformer('google/embeddinggemma-300m')
-    print("✅ Embedding model loaded successfully on retry")
+# Load the Gemma model (768 dimensions)
+model = SentenceTransformer('google/embeddinggemma-300m')
 
 db_manager = ChromaDBConfig()
 
@@ -78,7 +53,7 @@ def ingest_to_chroma(doc_id, text_chunks, source_urls=None):
         metadatas=metadatas
     )
 
-def query_from_chroma(question, top_k=5, min_similarity=0.6):
+def query_from_chroma(question, top_k=5, min_similarity=0.4):
     """
     Search for context directly from the ChromaDB storage.
     
@@ -86,7 +61,7 @@ def query_from_chroma(question, top_k=5, min_similarity=0.6):
         question: The query text
         top_k: Number of results to return
         min_similarity: Minimum similarity threshold (0-1). Chunks below this are filtered out.
-                       Lower distance = higher similarity. Default 0.6 = 60% similarity required.
+                       Lower distance = higher similarity. Default 0.4 = 40% similarity required.
     
     Returns:
         tuple: (chunks, sources)

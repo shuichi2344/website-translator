@@ -53,8 +53,8 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
     
     try:
         # Query ChromaDB with embedded question
-        # min_similarity=0.6 means we need at least 60% similarity
-        relevant_info, sources = query_from_chroma(question, top_k=5, min_similarity=0.6)
+        # min_similarity=0.4 means we need at least 40% similarity
+        relevant_info, sources = query_from_chroma(question, top_k=5, min_similarity=0.4)
         
         if relevant_info and len(relevant_info) >= 3:
             print(f"✅ Found {len(relevant_info)} relevant chunks in Vector Database")
@@ -119,7 +119,7 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
 
         # Now query again to get relevant chunks with sources
         print(f"\n🔍 [RAG Step 1-3] Re-querying Vector Database with new data...")
-        relevant_info, sources = query_from_chroma(question, top_k=5, min_similarity=0.6)
+        relevant_info, sources = query_from_chroma(question, top_k=5, min_similarity=0.4)
         
         print("\n--- Most Relevant Data Retrieved ---")
         for i, snippet in enumerate(relevant_info, 1):
