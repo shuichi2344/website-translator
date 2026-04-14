@@ -13,6 +13,26 @@ import re
 from datetime import datetime
 
 import fitz  # PyMuPDF
+from engine.insert_doc.translate import translate_field_value
+
+
+def _get_form_language(schema_path: str) -> str:
+    """Look up the form language from map.json via schema_path."""
+    try:
+        map_path = "map.json"
+        if not os.path.exists(map_path):
+            map_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(schema_path))), "map.json"
+            )
+        with open(map_path, "r", encoding="utf-8") as f:
+            registry = json.load(f)
+        norm = os.path.normpath(schema_path)
+        for entry in registry.get("available_forms", []):
+            if os.path.normpath(entry.get("schema_file", "")) == norm:
+                return entry.get("language", "English")
+    except Exception as e:
+        print(f"[write_doc] Could not read form language: {e}")
+    return "English"
 
 
 def _clean_label(label: str) -> str:
@@ -73,9 +93,16 @@ def fill_pdf(
     skipped = []
     written = 0
 
+    # Resolve the form's target language once
+    form_language = _get_form_language(schema_path)
+    print(f"[write_doc] Form language: {form_language}")
+
     for resp_label, value in responses.items():
         if not value or value.strip() in ("-", "not provided", ""):
             continue
+
+        # Translate value to the form's language (skips identity/contact fields)
+        value = translate_field_value(str(value), resp_label, form_language)
 
         clean = _clean_label(resp_label)
         direct = (input_bboxes or {}).get(resp_label)

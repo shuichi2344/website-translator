@@ -6,7 +6,8 @@
       "schema_file": "JSON_storage/lhdn_mystr_2026_updated.json",
       "pdf_file": "document_db/BK-02 (Borang Kemas Kini Maklumat Permohonan STR).pdf",
       "country": "Malaysia",
-      "form_type": "government"
+      "form_type": "government",
+      "language": "Malay"
     },
     {
       "id": "apex_beneficiary_form",
@@ -14,7 +15,8 @@
       "schema_file": "JSON_storage\\apex_life_beneficiary.json",
       "pdf_file": "document_db/Apex_Life_Beneficiary_Final.pdf",
       "country": "Malaysia",
-      "form_type": "APEX Assurance Group"
+      "form_type": "APEX Assurance Group",
+      "language": "English"
     },
     {
       "id": "apex_motor_vehicle_claim_form",
@@ -22,7 +24,8 @@
       "schema_file": "JSON_storage\\Apex_Motor_Vehicle_Insurans_Claim_Form.json",
       "pdf_file": "document_db/Motor_Vehicle_Insurans_Claim_Form.pdf",
       "country": "Malaysia",
-      "form_type": "APEX Assurance Group"
+      "form_type": "APEX Assurance Group",
+      "language": "English"
     }
   ]
 }
