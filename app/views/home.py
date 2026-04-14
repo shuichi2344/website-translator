@@ -85,14 +85,13 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             state.session, state.stream = create_session()
     
     # Initialize or get conversation
-    from datetime import datetime
     rag = get_rag_instance()
     if RAG_AVAILABLE and rag and state.user_id:
         if not state.conversation_id:
             # Create new conversation for this session
             state.conversation_id = rag.create_conversation(
                 user_id=state.user_id,
-                title=f"Chat - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                title="New Chat"
             )
             print(f"✅ Created conversation: {state.conversation_id}")
         else:
@@ -113,6 +112,10 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     is_processing: list = [False] # True while voice result is being processed
     _search_audio_chunks: list = []   # raw audio frames captured in search mode
     _search_sd_stream: list = [None]  # sounddevice InputStream handle
+    sidebar_visible: list = [False]  # Sidebar visibility state
+    conversations_list: list = []  # List of user conversations
+    sidebar_width: list = [280]  # Sidebar width (adjustable)
+    is_resizing: list = [False]  # Track if user is resizing sidebar
 
     LANG_CODE_MAP = {
         "English": "en", "Malay": "ms", "Indonesian": "id", "Thai": "th",
@@ -807,50 +810,67 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             fn()
 
     def _set_buttons_loading(loading: bool):
-        for btn in (doc_summarise_btn, doc_ask_btn, web_summarise_btn, web_ask_btn):
+        for btn in (doc_summarise_btn, web_summarise_btn):
             btn.disabled = loading
-        _panel_inner.opacity = 0.3 if loading else 1.0
-        _loading_overlay.visible = loading
         page.update()
 
     def on_doc_summarise(_):
         filepath = selected_file[0]
+        filename = selected_file_name[0]
         lang_code = LANG_CODE_MAP.get(doc_lang_dropdown.value or "English", "en")
-        _add_bubble(f"Summarising document: {selected_file_name[0]}", "user")
-        # Add thinking indicator
-        thinking_bubble = _add_bubble("Thinking…", "status")
+        
+        # Close the panel immediately
+        set_mode(None)
+        
+        # Show file attachment first
+        _add_file_attachment(filepath, filename)
+        
+        # Then show the action
+        _add_bubble(f"Summarising document: {filename}", "user")
+        # Add status indicator
+        status_bubble = _add_bubble("📄 Processing document...", "status")
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Update status: Extracting text
+                _ui_call(lambda: _update_status_bubble(status_bubble, "📝 Extracting text from document..."))
+                
                 # Use preloaded DocumentSummarizer
                 _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
+                
+                # Update status: Processing with AI
+                _ui_call(lambda: _update_status_bubble(status_bubble, "🤖 Analyzing content with AI..."))
+                
                 result = summarizer.process_document(filepath)
+                
                 if result:
+                    # Update status: Generating summary
+                    _ui_call(lambda: _update_status_bubble(status_bubble, "✨ Generating summary..."))
+                    
                     summary = result.get("summary", "")
                     orig = result.get("word_count", 0)
                     summ = result.get("summary_word_count", 0)
                     reduction = round(100 - (summ / orig * 100)) if orig else 0
-                    _ui_call(lambda: set_mode(None))
-                    # Remove thinking bubble before adding result
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
-                    _add_bubble_safe(f"📄 Document Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "result")
+                    # Remove status bubble before adding result
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
+                    _add_bubble_safe(f"📄 Document Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot")
                 else:
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
                     _add_bubble_safe("⚠️ Failed to process document.", "status")
             except Exception as exc:
-                def _remove_thinking():
-                    if thinking_bubble in chat_list.controls:
-                        chat_list.controls.remove(thinking_bubble)
-                _ui_call(_remove_thinking)
+                def _remove_status():
+                    if status_bubble in chat_list.controls:
+                        chat_list.controls.remove(status_bubble)
+                _ui_call(_remove_status)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -860,6 +880,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def on_doc_ask(_):
         question = (chat_field.value or "").strip()
         filepath = selected_file[0]
+        filename = selected_file_name[0]
         lang_code = LANG_CODE_MAP.get(doc_lang_dropdown.value or "English", "en")
 
         if not question:
@@ -867,38 +888,55 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             page.update()
             return
 
+        # Close the panel immediately
+        set_mode(None)
+        
+        # Show file attachment first
+        _add_file_attachment(filepath, filename)
+        
+        # Then show the question
         _add_bubble(question, "user")
-        # Add thinking indicator
-        thinking_bubble = _add_bubble("Thinking…", "status")
+        # Add status indicator
+        status_bubble = _add_bubble("📄 Processing document...", "status")
         chat_field.value = ""
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Update status: Extracting relevant sections
+                _ui_call(lambda: _update_status_bubble(status_bubble, "🔍 Searching through document..."))
+                
                 # Use preloaded DocumentSummarizer
                 _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
+                
+                # Update status: Using RAG
+                _ui_call(lambda: _update_status_bubble(status_bubble, "🧠 Retrieving relevant context..."))
+                
                 result = summarizer.rag_qa_document(filepath, question)
+                
                 if result:
-                    _ui_call(lambda: set_mode(None))
-                    # Remove thinking bubble before adding result
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
-                    _add_bubble_safe(result.get("summary", ""), "result")
+                    # Update status: Generating answer
+                    _ui_call(lambda: _update_status_bubble(status_bubble, "✨ Generating answer..."))
+                    
+                    # Remove status bubble before adding result
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
+                    _add_bubble_safe(result.get("summary", ""), "bot")
                 else:
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
                     _add_bubble_safe("⚠️ Could not answer that question.", "status")
             except Exception as exc:
-                def _remove_thinking():
-                    if thinking_bubble in chat_list.controls:
-                        chat_list.controls.remove(thinking_bubble)
-                _ui_call(_remove_thinking)
+                def _remove_status():
+                    if status_bubble in chat_list.controls:
+                        chat_list.controls.remove(status_bubble)
+                _ui_call(_remove_status)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -908,41 +946,55 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def on_web_summarise(_):
         url = url_field.value or ""
         lang_code = LANG_CODE_MAP.get(web_lang_dropdown.value or "English", "en")
+        
+        # Close the panel immediately
+        set_mode(None)
+        
         _add_bubble(f"Summarising: {url}", "user")
-        # Add thinking indicator
-        thinking_bubble = _add_bubble("Thinking…", "status")
+        # Add status indicator
+        status_bubble = _add_bubble("🌐 Fetching website...", "status")
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Update status: Crawling website
+                _ui_call(lambda: _update_status_bubble(status_bubble, "🕷️ Crawling website content..."))
+                
                 # Use preloaded DocumentSummarizer
                 _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
+                
+                # Update status: Processing content
+                _ui_call(lambda: _update_status_bubble(status_bubble, "🤖 Analyzing content with AI..."))
+                
                 result = summarizer.process_website(url, crawl_depth=1, max_sublinks=3)
+                
                 if result:
+                    # Update status: Generating summary
+                    _ui_call(lambda: _update_status_bubble(status_bubble, "✨ Generating summary..."))
+                    
                     summary = result.get("summary", "")
                     orig = result.get("word_count", 0)
                     summ = result.get("summary_word_count", 0)
                     reduction = round(100 - (summ / orig * 100)) if orig else 0
-                    _ui_call(lambda: set_mode(None))
-                    # Remove thinking bubble before adding result
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
-                    _add_bubble_safe(f"🌐 Website Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "result")
+                    # Remove status bubble before adding result
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
+                    _add_bubble_safe(f"🌐 Website Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot")
                 else:
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
                     _add_bubble_safe("⚠️ Failed to process website.", "status")
             except Exception as exc:
-                def _remove_thinking():
-                    if thinking_bubble in chat_list.controls:
-                        chat_list.controls.remove(thinking_bubble)
-                _ui_call(_remove_thinking)
+                def _remove_status():
+                    if status_bubble in chat_list.controls:
+                        chat_list.controls.remove(status_bubble)
+                _ui_call(_remove_status)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -959,38 +1011,51 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             page.update()
             return
 
+        # Close the panel immediately
+        set_mode(None)
+        
         _add_bubble(question, "user")
-        # Add thinking indicator
-        thinking_bubble = _add_bubble("Thinking…", "status")
+        # Add status indicator
+        status_bubble = _add_bubble("🌐 Fetching website...", "status")
         chat_field.value = ""
         page.update()
 
         def _work():
             _ui_call(lambda: _set_buttons_loading(True))
             try:
+                # Update status: Crawling website
+                _ui_call(lambda: _update_status_bubble(status_bubble, "🕷️ Crawling website content..."))
+                
                 # Use preloaded DocumentSummarizer
                 _, _, _, DocumentSummarizer, _ = _get_preloaded_modules()
                 summarizer = DocumentSummarizer(target_lang=lang_code)
+                
+                # Update status: Using RAG
+                _ui_call(lambda: _update_status_bubble(status_bubble, "🧠 Retrieving relevant context..."))
+                
                 result = summarizer.rag_qa_website(url, question)
+                
                 if result:
-                    _ui_call(lambda: set_mode(None))
-                    # Remove thinking bubble before adding result
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
-                    _add_bubble_safe(result.get("summary", ""), "result")
+                    # Update status: Generating answer
+                    _ui_call(lambda: _update_status_bubble(status_bubble, "✨ Generating answer..."))
+                    
+                    # Remove status bubble before adding result
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
+                    _add_bubble_safe(result.get("summary", ""), "bot")
                 else:
-                    def _remove_thinking():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
-                    _ui_call(_remove_thinking)
+                    def _remove_status():
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
+                    _ui_call(_remove_status)
                     _add_bubble_safe("⚠️ Could not answer that question.", "status")
             except Exception as exc:
-                def _remove_thinking():
-                    if thinking_bubble in chat_list.controls:
-                        chat_list.controls.remove(thinking_bubble)
-                _ui_call(_remove_thinking)
+                def _remove_status():
+                    if status_bubble in chat_list.controls:
+                        chat_list.controls.remove(status_bubble)
+                _ui_call(_remove_status)
                 _add_bubble_safe(f"⚠️ {exc}", "status")
             finally:
                 _ui_call(lambda: _set_buttons_loading(False))
@@ -998,9 +1063,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         _run_in_thread(_work)
 
     doc_summarise_btn  = _action_btn("Summarize Document", ft.icons.AUTO_AWESOME_OUTLINED, on_doc_summarise)
-    doc_ask_btn        = _action_btn("Ask a Question",     ft.icons.CHAT_OUTLINED,          on_doc_ask)
     web_summarise_btn  = _action_btn("Summarize Website",  ft.icons.AUTO_AWESOME_OUTLINED,  on_web_summarise)
-    web_ask_btn        = _action_btn("Ask a Question",     ft.icons.CHAT_OUTLINED,          on_web_ask)
 
     def _refresh_summarise_btn():
         has_input = (active_mode[0] == "document" and selected_file[0] is not None) or \
@@ -1025,7 +1088,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             form_panel,
             ft.Container(
                 content=ft.Row(
-                    [doc_summarise_btn, doc_ask_btn, web_summarise_btn, web_ask_btn],
+                    [doc_summarise_btn, web_summarise_btn],
                     spacing=8,
                 ),
                 padding=ft.padding.only(top=4, bottom=8),
@@ -1035,25 +1098,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         spacing=0,
     )
 
-    # Loading overlay — 50% black scrim + centered spinner
-    _loading_overlay = ft.Container(
-        content=ft.ProgressRing(color=accent, width=40, height=40, stroke_width=4),
-        alignment=ft.alignment.center,
-        bgcolor=ft.colors.with_opacity(0.3, "#000000"),
-        border_radius=ft.border_radius.only(top_left=20, top_right=20),
-        visible=False,
-        left=0,
-        right=0,
-        top=0,
-        bottom=0,
-    )
-
-    # Stack: content behind, overlay on top
+    # Panel container (no loading overlay needed - status updates shown in chat)
     panel_container = ft.Container(
-        content=ft.Stack(
-            [_panel_inner, _loading_overlay],
-            expand=True,
-        ),
+        content=_panel_inner,
         bgcolor=PANEL_BG,
         border_radius=ft.border_radius.only(top_left=20, top_right=20),
         padding=ft.padding.symmetric(horizontal=16, vertical=12),
@@ -1079,14 +1126,10 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         form_panel.visible = mode == "form"
         if mode is None:
             doc_summarise_btn.visible = False
-            doc_ask_btn.visible       = False
             web_summarise_btn.visible = False
-            web_ask_btn.visible       = False
         else:
             doc_summarise_btn.visible = mode == "document"
-            doc_ask_btn.visible       = mode == "document"
             web_summarise_btn.visible = mode == "web"
-            web_ask_btn.visible       = mode == "web"
             # Summarize disabled until valid input provided
             doc_summarise_btn.disabled = selected_file[0] is None
             web_summarise_btn.disabled = not url_valid[0]
@@ -1130,10 +1173,246 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         auto_scroll=True,
     )
 
+    # ------------------------------------------------------------------ #
+    #  Sidebar - Conversation History                                     #
+    # ------------------------------------------------------------------ #
+    
+    def load_conversations():
+        """Load user's conversation history from database"""
+        if not RAG_AVAILABLE or not rag or not state.user_id:
+            return
+        try:
+            convos = rag.mysql.get_user_conversations(state.user_id)
+            conversations_list.clear()
+            conversations_list.extend(convos)
+            refresh_sidebar()
+        except Exception as e:
+            print(f"⚠️ Failed to load conversations: {e}")
+    
+    def refresh_sidebar():
+        """Refresh the sidebar conversation list"""
+        sidebar_list.controls.clear()
+        
+        for convo in conversations_list:
+            convo_id = convo.get('conversation_id')
+            title = convo.get('title', 'Untitled Chat')
+            created_at = convo.get('created_at', '')
+            
+            # Truncate title if too long
+            display_title = title if len(title) <= 30 else title[:27] + "..."
+            
+            # Highlight active conversation
+            is_active = convo_id == state.conversation_id
+            
+            convo_btn = ft.Container(
+                content=ft.Column([
+                    ft.Text(
+                        display_title,
+                        size=14,
+                        weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.NORMAL,
+                        color=accent if is_active else state.text_color(),
+                    ),
+                    ft.Text(
+                        str(created_at)[:16] if created_at else "",
+                        size=10,
+                        color=ft.colors.GREY_500,
+                    ),
+                ], spacing=2, tight=True),
+                padding=ft.padding.all(12),
+                border_radius=8,
+                bgcolor=ft.colors.with_opacity(0.1, accent) if is_active else None,
+                on_click=lambda e, cid=convo_id: switch_conversation(cid),
+                ink=True,
+            )
+            sidebar_list.controls.append(convo_btn)
+        
+        page.update()
+    
+    def switch_conversation(conversation_id: str):
+        """Switch to a different conversation"""
+        if conversation_id == state.conversation_id:
+            return
+        
+        # Save current conversation_id
+        state.conversation_id = conversation_id
+        
+        # Clear chat list
+        chat_list.controls.clear()
+        
+        # Load conversation history
+        if RAG_AVAILABLE and rag:
+            try:
+                messages = rag.get_conversation_history(conversation_id)
+                for msg in messages:
+                    sender = msg.get('sender', 'user')
+                    text = msg.get('message_text', '')
+                    
+                    # Parse sources if they exist in the message
+                    sources = []
+                    if '\n\nReferences:\n' in text:
+                        parts = text.split('\n\nReferences:\n')
+                        text = parts[0]
+                        if len(parts) > 1:
+                            source_lines = parts[1].split('\n')
+                            sources = [line.split('. ', 1)[1] if '. ' in line else line 
+                                     for line in source_lines if line.strip()]
+                    
+                    role = "user" if sender == "user" else "bot"
+                    _add_bubble(text, role, sources if sources else None)
+            except Exception as e:
+                print(f"⚠️ Failed to load conversation: {e}")
+        
+        refresh_sidebar()
+        page.update()
+    
+    def create_new_chat():
+        """Create a new conversation (only if current one has messages)"""
+        if not RAG_AVAILABLE or not rag or not state.user_id:
+            return
+        
+        # Check if current conversation is empty
+        if state.conversation_id:
+            try:
+                messages = rag.get_conversation_history(state.conversation_id)
+                if not messages or len(messages) == 0:
+                    # Current conversation is empty, don't create a new one
+                    print("⚠️ Current conversation is empty, not creating new chat")
+                    return
+            except Exception as e:
+                print(f"⚠️ Failed to check conversation history: {e}")
+        
+        # Create new conversation
+        new_convo_id = rag.create_conversation(
+            user_id=state.user_id,
+            title="New Chat"
+        )
+        
+        if new_convo_id:
+            state.conversation_id = new_convo_id
+            chat_list.controls.clear()
+            load_conversations()
+            page.update()
+            print(f"✅ Created new conversation: {new_convo_id}")
+    
+    # Resize handlers
+    def on_resize_start(e):
+        """Start resizing sidebar"""
+        is_resizing[0] = True
+    
+    def on_resize_update(e: ft.DragUpdateEvent):
+        """Update sidebar width while dragging"""
+        if not is_resizing[0]:
+            return
+        
+        # Calculate new width (minimum 200px, maximum 500px)
+        new_width = sidebar_width[0] + e.delta_x
+        new_width = max(200, min(500, new_width))
+        
+        sidebar_width[0] = new_width
+        sidebar_container.width = new_width
+        page.update()
+    
+    def on_resize_end(e):
+        """End resizing sidebar"""
+        is_resizing[0] = False
+    
+    # Resize handle (draggable divider)
+    resize_handle = ft.GestureDetector(
+        content=ft.Container(
+            width=8,
+            bgcolor=ft.colors.TRANSPARENT,
+            border=ft.border.only(
+                left=ft.BorderSide(2, ft.colors.with_opacity(0.3, accent))
+            ),
+            expand=True,
+        ),
+        on_pan_start=on_resize_start,
+        on_pan_update=on_resize_update,
+        on_pan_end=on_resize_end,
+        mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
+    )
+    
+    # Sidebar list container
+    sidebar_list = ft.Column(
+        spacing=4,
+        scroll=ft.ScrollMode.AUTO,
+        expand=True,
+    )
+    
+    # Store sidebar_with_handle reference in a list so it can be accessed before definition
+    sidebar_with_handle_ref = [None]
+    
+    # Define toggle function that will be used by buttons
+    def toggle_sidebar():
+        """Toggle sidebar visibility"""
+        sidebar_visible[0] = not sidebar_visible[0]
+        if sidebar_with_handle_ref[0]:
+            sidebar_with_handle_ref[0].visible = sidebar_visible[0]
+            page.update()
+    
+    # Sidebar container
+    sidebar_container = ft.Container(
+        content=ft.Column([
+            # Header with close button
+            ft.Row([
+                ft.Text(
+                    "Conversations",
+                    size=18,
+                    weight=ft.FontWeight.BOLD,
+                    color=state.text_color(),
+                ),
+                ft.IconButton(
+                    icon=ft.icons.CLOSE,
+                    icon_color=state.text_color(),
+                    on_click=lambda _: toggle_sidebar(),
+                    tooltip="Close",
+                ),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            
+            # New Chat button
+            ft.Container(
+                content=ft.ElevatedButton(
+                    "➕ New Chat",
+                    on_click=lambda _: create_new_chat(),
+                    style=ft.ButtonStyle(
+                        bgcolor=accent,
+                        color=ft.colors.WHITE,
+                        padding=ft.padding.symmetric(horizontal=20, vertical=12),
+                    ),
+                ),
+                width=None,
+            ),
+            
+            ft.Divider(height=1, color=ft.colors.with_opacity(0.2, state.text_color())),
+            
+            # Conversation list
+            ft.Container(
+                content=sidebar_list,
+                expand=True,
+            ),
+        ], spacing=12, expand=True),
+        width=280,
+        padding=ft.padding.all(16),
+        bgcolor=state.surface_color(),
+    )
+    
+    # Sidebar with resize handle
+    sidebar_with_handle = ft.Row([
+        sidebar_container,
+        resize_handle,
+    ], spacing=0, visible=False)
+    
+    # Store reference for toggle function
+    sidebar_with_handle_ref[0] = sidebar_with_handle
+    
+    # Load conversations on startup
+    if RAG_AVAILABLE and rag and state.user_id:
+        threading.Thread(target=load_conversations, daemon=True).start()
+
+
     def _add_bubble(text: str, role: str = "bot", sources: list = None):
         """
-        role: "user" | "bot" | "status" | "result"
-        result = right-aligned bot response (summarizer/Q&A output)
+        role: "user" | "bot" | "status"
         status = small centred pill for pipeline progress steps.
         sources = list of source URLs to display as references
         Returns the bubble element so it can be removed later.
@@ -1147,30 +1426,24 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             )
             bubble = ft.Row([content], alignment=ft.MainAxisAlignment.END, expand=True)
 
-        elif role == "result":
-            content = ft.Container(
-                content=ft.Text(text, color=BUBBLE_USER_FG, size=state.font_sp(), selectable=True),
-                gradient=_grad,
-                border_radius=16,
-                padding=ft.padding.symmetric(horizontal=14, vertical=10),
-                expand=True,
-            )
-            bubble = ft.Row([content], alignment=ft.MainAxisAlignment.END, expand=True)
-
         elif role == "status":
+            # Create a text element that can be updated
+            status_text = ft.Text(
+                text,
+                color=BUBBLE_STATUS_FG,
+                size=state.font_sp() - 2,
+                italic=True,
+                text_align=ft.TextAlign.CENTER,
+            )
             content = ft.Container(
-                content=ft.Text(
-                    text,
-                    color=BUBBLE_STATUS_FG,
-                    size=state.font_sp() - 2,
-                    italic=True,
-                    text_align=ft.TextAlign.CENTER,
-                ),
+                content=status_text,
                 bgcolor=ft.colors.with_opacity(0.06, accent),
                 border_radius=20,
                 padding=ft.padding.symmetric(horizontal=12, vertical=6),
             )
             bubble = ft.Row([content], alignment=ft.MainAxisAlignment.CENTER, expand=True)
+            # Store reference to text element for updates
+            bubble.status_text = status_text
 
         else:  # bot
             # Track TTS state for this bubble
@@ -1380,6 +1653,70 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
         chat_list.controls.append(bubble)
         return bubble
+    
+    def _update_status_bubble(bubble, new_text: str):
+        """Update the text of a status bubble"""
+        if bubble and hasattr(bubble, 'status_text'):
+            bubble.status_text.value = new_text
+            page.update()
+    
+    def _add_file_attachment(filepath: str, filename: str):
+        """Add a file attachment preview to the chat (images show preview, docs show icon)"""
+        import os
+        
+        file_ext = os.path.splitext(filename)[1].lower()
+        
+        # Check if it's an image
+        if file_ext in ['.png', '.jpg', '.jpeg']:
+            # Show image preview
+            try:
+                attachment_content = ft.Column([
+                    ft.Image(
+                        src=filepath,
+                        width=300,
+                        height=200,
+                        fit=ft.ImageFit.CONTAIN,
+                        border_radius=8,
+                    ),
+                    ft.Text(
+                        filename,
+                        size=state.font_sp() - 2,
+                        color=BUBBLE_USER_FG,
+                        italic=True,
+                    ),
+                ], spacing=4, tight=True)
+            except Exception as e:
+                print(f"Failed to load image: {e}")
+                # Fallback to document icon
+                attachment_content = ft.Row([
+                    ft.Icon(ft.icons.IMAGE, color=BUBBLE_USER_FG, size=24),
+                    ft.Text(filename, color=BUBBLE_USER_FG, size=state.font_sp() - 1),
+                ], spacing=8)
+        else:
+            # Show document icon
+            icon_map = {
+                '.pdf': ft.icons.PICTURE_AS_PDF,
+                '.docx': ft.icons.DESCRIPTION,
+                '.doc': ft.icons.DESCRIPTION,
+            }
+            icon = icon_map.get(file_ext, ft.icons.INSERT_DRIVE_FILE)
+            
+            attachment_content = ft.Row([
+                ft.Icon(icon, color=BUBBLE_USER_FG, size=24),
+                ft.Text(filename, color=BUBBLE_USER_FG, size=state.font_sp() - 1),
+            ], spacing=8)
+        
+        content = ft.Container(
+            content=attachment_content,
+            gradient=_grad,
+            border_radius=16,
+            padding=ft.padding.symmetric(horizontal=14, vertical=10),
+        )
+        bubble = ft.Row([content], alignment=ft.MainAxisAlignment.END, expand=True)
+        
+        chat_list.controls.append(bubble)
+        page.update()
+        return bubble
 
     # ------------------------------------------------------------------ #
     #  Chat Bar (Task 5.1)                                                #
@@ -1445,7 +1782,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         else:
             # General chat mode - use voice processing pipeline
             _add_bubble(msg, "user")
-            thinking_bubble = _add_bubble("Thinking…", "status")
+            status_bubble = _add_bubble("🔍 Processing your question...", "status")
             chat_field.value = ""
             mic_icon.name = ft.icons.MIC_ROUNDED
             page.update()
@@ -1455,17 +1792,48 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             if RAG_AVAILABLE and rag and state.conversation_id:
                 try:
                     rag.save_user_message(state.conversation_id, msg)
+                    
+                    # Update conversation title with first message (if it's a default title)
+                    def update_title():
+                        try:
+                            convos = rag.mysql.get_user_conversations(state.user_id)
+                            current_convo = next((c for c in convos if c['conversation_id'] == state.conversation_id), None)
+                            if current_convo and current_convo.get('title', '') == 'New Chat':
+                                # Generate a better title from the first message
+                                title = msg[:50] + "..." if len(msg) > 50 else msg
+                                rag.mysql.cursor.execute(
+                                    "UPDATE conversations SET title = %s WHERE conversation_id = %s",
+                                    (title, state.conversation_id)
+                                )
+                                rag.mysql.connection.commit()
+                                # Refresh sidebar
+                                load_conversations()
+                        except Exception as e:
+                            print(f"⚠️ Failed to update conversation title: {e}")
+                    
+                    threading.Thread(target=update_title, daemon=True).start()
+                    
                 except Exception as e:
                     print(f"⚠️ Failed to save user message: {e}")
             
             def _process_text_question():
                 try:
+                    # Update status: Searching knowledge base
+                    _ui_call(lambda: _update_status_bubble(status_bubble, "🧠 Searching knowledge base..."))
+                    
                     # Use preloaded modules
                     _, process_voice_result, _, _, _ = _get_preloaded_modules()
+                    
+                    # Update status: Retrieving context
+                    _ui_call(lambda: _update_status_bubble(status_bubble, "📚 Retrieving relevant information..."))
                     
                     # Process the question with user's country and language preferences
                     print(f"Processing text question: {msg}")
                     print(f"User country: {state.country}, User language: {state.language}")
+                    
+                    # Update status: Generating answer
+                    _ui_call(lambda: _update_status_bubble(status_bubble, "✨ Generating answer..."))
+                    
                     response = process_voice_result(
                         dialect="en",  # Detected dialect (not used when language is specified)
                         question=msg,
@@ -1477,9 +1845,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     
                     # Update UI with response
                     def _show_response():
-                        # Remove thinking bubble
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
+                        # Remove status bubble
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
                         
                         if response:
                             # response is now a dict with 'answer' and 'sources'
@@ -1519,8 +1887,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     
                 except Exception as exc:
                     def _show_error():
-                        if thinking_bubble in chat_list.controls:
-                            chat_list.controls.remove(thinking_bubble)
+                        if status_bubble in chat_list.controls:
+                            chat_list.controls.remove(status_bubble)
                         _add_bubble(f"⚠️ Error: {exc}", "status")
                         page.update()
                     _ui_call(_show_error)
@@ -2059,6 +2427,12 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         ),
         bgcolor=ft.colors.TRANSPARENT,
         center_title=True,
+        leading=ft.IconButton(
+            icon=ft.icons.MENU,
+            icon_color=state.text_color(),
+            on_click=lambda _: toggle_sidebar(),
+            tooltip="Conversations",
+        ),
         actions=[
             ft.IconButton(
                 icon=ft.icons.PERSON_OUTLINE,
@@ -3254,40 +3628,45 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         route="/home",
         appbar=appbar,
         controls=[
-            ft.Container(
-                expand=True,
-                gradient=ft.LinearGradient(
-                    begin=ft.alignment.top_center,
-                    end=ft.alignment.bottom_center,
-                    colors=(
-                        ["#1A0F2E", "#0D1B3E"] if _dark
-                        else ["#F5F3FF", "#EFF6FF"]
+            ft.Row([
+                # Sidebar with resize handle
+                sidebar_with_handle,
+                # Main content
+                ft.Container(
+                    expand=True,
+                    gradient=ft.LinearGradient(
+                        begin=ft.alignment.top_center,
+                        end=ft.alignment.bottom_center,
+                        colors=(
+                            ["#1A0F2E", "#0D1B3E"] if _dark
+                            else ["#F5F3FF", "#EFF6FF"]
+                        ),
+                    ),
+                    content=ft.Column(
+                        [
+                            _cards_header,
+                            # Chat list wrapped in gesture detector for swipe detection
+                            ft.GestureDetector(
+                                content=chat_list,
+                                on_vertical_drag_update=_on_drag_update,
+                                expand=True,
+                            ),
+                            # Bottom section — always below the list, never overlaid
+                            panel_container,
+                            result_card,
+                            ft.Row(
+                                [chat_bar, mic_container],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                spacing=0,
+                            ),
+                        ],
+                        expand=True,
+                        spacing=0,
+                        tight=False,
                     ),
                 ),
-                content=ft.Column(
-                    [
-                        _cards_header,
-                        # Chat list wrapped in gesture detector for swipe detection
-                        ft.GestureDetector(
-                            content=chat_list,
-                            on_vertical_drag_update=_on_drag_update,
-                            expand=True,
-                        ),
-                        # Bottom section — always below the list, never overlaid
-                        panel_container,
-                        result_card,
-                        ft.Row(
-                            [chat_bar, mic_container],
-                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            spacing=0,
-                        ),
-                    ],
-                    expand=True,
-                    spacing=0,
-                    tight=False,
-                ),
-            ),
+            ], spacing=0, expand=True),
         ],
         padding=0,
         bgcolor=state.bg_color(),
