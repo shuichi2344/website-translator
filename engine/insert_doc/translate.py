@@ -54,6 +54,7 @@ def translate(sentence: str, language: str) -> str:
     _LEAK_PATTERNS = [
         r'\bdalam bahasa\b.*',
         r'\bin\s+\w+\s+language\b.*',
+        r'\bin\s+(?:english|malay|thai|vietnamese|tagalog|indonesian|chinese|tamil)\b.*',
         r'\btranslation\b.*',
         r'\bask\w*\s+directly\b.*',
         r'\bbertanya\s+secara\s+langsung\b.*',

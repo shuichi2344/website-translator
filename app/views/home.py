@@ -2579,6 +2579,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     _iv_entry: list = [None]
     _iv_filling: list = [False]
     _iv_confirming: list = [False]
+    _iv_editing: list = [False]        # True while user is picking a field to edit
+    _iv_edit_key: list = [None]        # label key of the field being re-answered
     _iv_sig_path: list = [None]
     _iv_schema_to_delete: list = [None]
     _iv_audio_chunks: list = []
@@ -2638,6 +2640,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         _iv_entry[0] = None
         _iv_filling[0] = False
         _iv_confirming[0] = False
+        _iv_editing[0] = False
+        _iv_edit_key[0] = None
         _iv_sig_path[0] = None
         _iv_question_text.value = ""
         _iv_question_text.size = state.font_sp() + 4
@@ -2647,6 +2651,94 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         _interview_progress_text.value = ""
         _iv_lang_screen.visible = True
         _iv_qa_screen.visible = False
+        # Restore card to original Stack layout in case edit picker replaced it
+        _iv_question_card.content = ft.Stack(
+            [
+                ft.Container(
+                    content=ft.Column(
+                        [_iv_help_icon, _iv_question_text],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=16,
+                        scroll=ft.ScrollMode.AUTO,
+                    ),
+                    alignment=ft.alignment.center,
+                    expand=True,
+                    padding=ft.padding.only(bottom=36),
+                ),
+                ft.Container(
+                    content=_iv_listen_btn,
+                    alignment=ft.alignment.bottom_left,
+                    left=0, bottom=0,
+                ),
+            ],
+            expand=True,
+        )
+        _iv_question_card.height = 220
+        _iv_question_card.border = ft.border.all(2, accent)
+        page.update()
+
+    def _iv_show_edit_picker():
+        """Replace the card content with a scrollable list of answered fields to edit."""
+        ai = _iv_ai[0]
+        if not ai:
+            return
+
+        def _pick(key):
+            """User tapped a field chip — pre-fill the input and switch to edit mode."""
+            _iv_editing[0] = True
+            _iv_edit_key[0] = key
+            current_val = ai.responses.get(key, "")
+            _iv_question_text.value = f"Edit: {key}"
+            _iv_question_text.size = state.font_sp()
+            _iv_help_icon.visible = False
+            _iv_question_card.border = ft.border.all(2, ft.colors.ORANGE_400)
+            _iv_last_answer_text.value = f"Current: {current_val}"
+            _iv_status_text.value = ""
+            _interview_field.value = current_val
+            _interview_progress_text.value = "Type new answer and press Enter, or tap mic."
+            page.update()
+
+        chips = []
+        for key, val in ai.responses.items():
+            if not val or val == "-":
+                continue
+            chips.append(
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Text(key, size=state.font_sp() - 2, weight=ft.FontWeight.W_600,
+                                    color=state.text_color(), no_wrap=False, expand=True),
+                            ft.Text(str(val)[:30] + ("…" if len(str(val)) > 30 else ""),
+                                    size=state.font_sp() - 3,
+                                    color=ft.colors.with_opacity(0.6, state.text_color()),
+                                    no_wrap=True),
+                        ],
+                        spacing=8,
+                    ),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    border_radius=10,
+                    bgcolor=ft.colors.with_opacity(0.08, accent),
+                    border=ft.border.all(1, ft.colors.with_opacity(0.2, accent)),
+                    on_click=lambda e, k=key: _pick(k),
+                    ink=True,
+                )
+            )
+
+        _iv_question_card.content = ft.Column(
+            [
+                ft.Text("Tap a field to edit it:", size=state.font_sp() - 1,
+                        weight=ft.FontWeight.W_600, color=state.text_color()),
+                ft.Column(chips, spacing=6, scroll=ft.ScrollMode.AUTO, expand=True),
+            ],
+            spacing=8,
+            expand=True,
+        )
+        _iv_question_card.height = 320
+        _iv_question_card.border = ft.border.all(2, ft.colors.ORANGE_400)
+        _iv_last_answer_text.value = "Select a field above to edit, or type 'done' to confirm."
+        _iv_status_text.value = ""
+        _interview_progress_text.value = ""
         page.update()
 
     def _iv_run_session(ai: InclusiveCitizenAI):
@@ -2790,8 +2882,58 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 page.update()
             else:
                 _iv_confirming[0] = False
-                _iv_add_bubble("No problem — the form has been discarded.", "status")
-                _run_in_thread(lambda: (__import__('time').sleep(1.5), _ui_call(_iv_close_modal)))
+                _iv_show_edit_picker()
+            return
+
+        if _iv_editing[0]:
+            key = _iv_edit_key[0]
+            ai = _iv_ai[0]
+            if msg.lower() in ("done", "confirm", "yes", "ok", "siap"):
+                # Done editing — restore summary card
+                _iv_editing[0] = False
+                _iv_edit_key[0] = None
+                _interview_field.value = ""
+                tts_summary = ai.get_tts_summary() if ai else ""
+                _iv_question_card.content = ft.Stack(
+                    [
+                        ft.Container(
+                            content=ft.Column(
+                                [_iv_help_icon, _iv_question_text],
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=16,
+                                scroll=ft.ScrollMode.AUTO,
+                            ),
+                            alignment=ft.alignment.center,
+                            expand=True,
+                            padding=ft.padding.only(bottom=36),
+                        ),
+                        ft.Container(
+                            content=_iv_listen_btn,
+                            alignment=ft.alignment.bottom_left,
+                            left=0, bottom=0,
+                        ),
+                    ],
+                    expand=True,
+                )
+                _iv_question_card.height = 220
+                _iv_question_text.value = tts_summary
+                _iv_question_text.size = state.font_sp() - 1
+                _iv_help_icon.visible = False
+                _iv_question_card.border = ft.border.all(2, ft.colors.GREEN_400)
+                _iv_last_answer_text.value = "Type 'yes' to confirm or 'no' to edit more."
+                _iv_status_text.value = ""
+                _interview_progress_text.value = ""
+                _iv_confirming[0] = True
+                page.update()
+            elif key and ai:
+                # Save new value and return to picker
+                _iv_add_bubble(msg, "user")
+                _interview_field.value = ""
+                ai.responses[key] = msg
+                _iv_editing[0] = False
+                _iv_edit_key[0] = None
+                _iv_show_edit_picker()
             return
 
     def _iv_on_field_change(e):
@@ -2941,36 +3083,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
         def _speak():
             try:
-                import pygame, tempfile, os, asyncio as _asyncio, edge_tts
-                from engine.speech.text_to_speech import VOICE_MATRIX, get_lang
-
-                if not pygame.mixer.get_init():
-                    pygame.mixer.init()
-
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-                _iv_tts_audio[0] = tmp.name
-                tmp.close()
-
-                country_code = _COUNTRY_CODE_MAP.get(state.country, "DEFAULT")
-                lang = get_lang(text)
-                country_voices = VOICE_MATRIX.get(country_code, VOICE_MATRIX["DEFAULT"])
-                voice = (
-                    country_voices if isinstance(country_voices, str)
-                    else country_voices.get(lang, country_voices.get("en", "en-US-AriaNeural"))
-                )
-
-                async def _gen():
-                    for v in [voice, "en-US-AriaNeural"]:
-                        try:
-                            await edge_tts.Communicate(text, v).save(_iv_tts_audio[0])
-                            return
-                        except Exception:
-                            pass
-
-                loop = _asyncio.new_event_loop()
-                _asyncio.set_event_loop(loop)
-                loop.run_until_complete(_gen())
-                loop.close()
+                import asyncio as _asyncio
+                from engine.speech.text_to_speech import speak_answer
 
                 def _set_playing():
                     _iv_tts_loading[0] = False
@@ -2980,18 +3094,11 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     page.update()
                 _ui_call(_set_playing)
 
-                pygame.mixer.music.load(_iv_tts_audio[0])
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    pygame.time.Clock().tick(10)
-                    if _iv_tts_paused[0]:
-                        while _iv_tts_paused[0]:
-                            pygame.time.Clock().tick(10)
-
-                try:
-                    os.unlink(_iv_tts_audio[0])
-                except Exception:
-                    pass
+                country_code = _COUNTRY_CODE_MAP.get(state.country, "DEFAULT")
+                loop = _asyncio.new_event_loop()
+                _asyncio.set_event_loop(loop)
+                loop.run_until_complete(speak_answer(text, country_code))
+                loop.close()
 
             except Exception as exc:
                 print(f"[iv_tts] error: {exc}")

@@ -440,6 +440,13 @@ class InclusiveCitizenAI:
         if collapsed != stripped:
             print(f"[extract] spelling collapsed: '{stripped}' -> '{collapsed}'")
             stripped = collapsed
+
+        # Normalize time fields — extract HH:MM from verbose answers
+        if re.search(r'\btime\b', label, re.IGNORECASE):
+            m = re.search(r'\b([01]?\d|2[0-3]):([0-5]\d)\b', stripped)
+            if m:
+                stripped = m.group(0)
+                print(f"[extract] time normalized -> '{stripped}'")
         if stripped.lower() in _na_phrases:
             value = "-"
             self._save_value(field, label, value)
