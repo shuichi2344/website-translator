@@ -3,9 +3,121 @@ import re
 import threading
 
 import ollama
-from engine.insert_doc.translate import translate as _sailor2_translate
+from engine.insert_doc.translate import translate as _sailor2_translate, translate_summary as _translate_summary
 
 _OLLAMA_MODEL = "llama3.2"
+
+_DIGIT_WORDS = {
+    # English
+    'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+    'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
+    # Malay / Indonesian
+    'kosong': '0', 'satu': '1', 'dua': '2', 'tiga': '3', 'empat': '4',
+    'lima': '5', 'enam': '6', 'tujuh': '7', 'lapan': '8', 'sembilan': '9',
+    # Thai (romanised by Whisper)
+    'sun': '0', 'nung': '1', 'song': '2', 'sam': '3', 'si': '4',
+    'ha': '5', 'hok': '6', 'jet': '7', 'paet': '8', 'kao': '9',
+    # Vietnamese
+    'không': '0', 'một': '1', 'hai': '2', 'ba': '3', 'bốn': '4',
+    'năm': '5', 'sáu': '6', 'bảy': '7', 'tám': '8', 'chín': '9',
+    # Tagalog / Filipino
+    'wala': '0', 'isa': '1', 'dalawa': '2', 'tatlo': '3', 'apat': '4',
+    'limang': '5', 'anim': '6', 'pito': '7', 'walo': '8', 'siyam': '9',
+}
+
+# Unicode digit ranges → ASCII: Thai ๐-๙, Arabic-Indic ٠-٩,
+# Extended Arabic-Indic ۰-۹, Devanagari ०-९, Bengali ০-৯,
+# Chinese fullwidth ０-９
+_UNICODE_DIGIT_TABLE = str.maketrans(
+    '๐๑๒๓๔๕๖๗๘๙'   # Thai
+    '٠١٢٣٤٥٦٧٨٩'   # Arabic-Indic
+    '۰۱۲۳۴۵۶۷۸۹'   # Extended Arabic-Indic
+    '०१२३४५६७८९'   # Devanagari
+    '০১২৩৪৫৬৭৮৯'   # Bengali
+    '０１２３４５６７８９',  # Fullwidth
+    '0123456789' * 6
+)
+
+# Chinese / Japanese / Korean digit characters
+_CJK_DIGIT_MAP = {
+    '零': '0', '〇': '0', '一': '1', '二': '2', '三': '3', '四': '4',
+    '五': '5', '六': '6', '七': '7', '八': '8', '九': '9',
+    '壹': '1', '貳': '2', '參': '3', '肆': '4', '伍': '5',
+    '陸': '6', '柒': '7', '捌': '8', '玖': '9',
+}
+
+_SYMBOL_MAP = [
+    (re.compile(r'\bat sign\b',    re.IGNORECASE), '@'),
+    (re.compile(r'\bdot\b',        re.IGNORECASE), '.'),
+    (re.compile(r'\bperiod\b',     re.IGNORECASE), '.'),
+    (re.compile(r'\bdash\b',       re.IGNORECASE), '-'),
+    (re.compile(r'\bhyphen\b',     re.IGNORECASE), '-'),
+    (re.compile(r'\bunderscore\b', re.IGNORECASE), '_'),
+    (re.compile(r'\bslash\b',      re.IGNORECASE), '/'),
+    (re.compile(r'\bplus\b',       re.IGNORECASE), '+'),
+    (re.compile(r'\bampersand\b',  re.IGNORECASE), '&'),
+    (re.compile(r'\bhash\b',       re.IGNORECASE), '#'),
+    (re.compile(r'\bpound sign\b', re.IGNORECASE), '#'),
+    (re.compile(r'\bcolon\b',      re.IGNORECASE), ':'),
+    (re.compile(r'\bsemicolon\b',  re.IGNORECASE), ';'),
+    (re.compile(r'\bspace\b',      re.IGNORECASE), ' '),
+]
+
+_RE_AT = re.compile(r'\bat\b', re.IGNORECASE)
+_EMAIL_LABEL_KEYWORDS = {'email', 'e-mail', 'emel', 'mel'}
+
+# Single letters separated by hyphens OR spaces: J-A-M-E-S or J A M E S
+_RE_LETTER_RUN = re.compile(r'\b([A-Za-z][\s\-])+[A-Za-z]\b')
+# Single digits separated by hyphens, spaces, or commas (including combinations like ", ")
+_RE_DIGIT_RUN  = re.compile(r'(?<!\d)\d(?:[\s,\-]+\d){2,}(?!\d)')
+# Sequence of digit-words separated by spaces or hyphens
+_DIGIT_WORD_PAT = '|'.join(_DIGIT_WORDS)
+_RE_DIGIT_WORDS = re.compile(
+    r'\b(?:' + _DIGIT_WORD_PAT + r')(?:[\s\-]+(?:' + _DIGIT_WORD_PAT + r'))+\b',
+    re.IGNORECASE,
+)
+
+
+def _collapse_spelled(text: str, label: str = "") -> str:
+    """Collapse Whisper's spelled-out letters/digits/symbols into compact form."""
+    s = text
+
+    # Normalize Unicode digit scripts → ASCII digits
+    s = s.translate(_UNICODE_DIGIT_TABLE)
+    for cjk, digit in _CJK_DIGIT_MAP.items():
+        s = s.replace(cjk, digit)
+
+    # Replace symbol words first
+    for pattern, char in _SYMBOL_MAP:
+        s = pattern.sub(char, s)
+
+    # "at" -> "@" only for email fields
+    if any(kw in label.lower() for kw in _EMAIL_LABEL_KEYWORDS):
+        s = _RE_AT.sub('@', s)
+
+    # Remove spaces around punctuation that shouldn't have them: "john . doe" -> "john.doe"
+    s = re.sub(r'\s*([.@_/+&#:;])\s*', r'\1', s)
+
+    # Digit words run: "one two three" -> "123"
+    def _digit_run(m):
+        run = m.group(0)
+        for word, digit in _DIGIT_WORDS.items():
+            run = re.sub(r'\b' + word + r'\b', digit, run, flags=re.IGNORECASE)
+        return re.sub(r'[\s\-]+', '', run)
+    s = _RE_DIGIT_WORDS.sub(_digit_run, s)
+
+    # Letter run: J-A-M-E-S or J A M E S -> JAMES
+    s = _RE_LETTER_RUN.sub(lambda m: re.sub(r'[\s\-]', '', m.group(0)), s)
+
+    # Digit run: 1-2-3 or 1 2 3 or 1, 2, 3 -> 123
+    s = _RE_DIGIT_RUN.sub(lambda m: re.sub(r'[\s,\-]', '', m.group(0)), s)
+
+    # Collapse multiple spaces left over
+    s = re.sub(r'  +', ' ', s)
+
+    return s.strip().strip('.,')
+
+
 
 
 def _call_llm(prompt: str, max_tokens: int = 60) -> str:
@@ -322,6 +434,12 @@ class InclusiveCitizenAI:
             "haven't", "-", "/", "skip", "kosong"
         }
         stripped = user_text.strip()
+
+        # Collapse spelled-out letters/digits/symbols Whisper transcribes literally
+        collapsed = _collapse_spelled(stripped, label=label)
+        if collapsed != stripped:
+            print(f"[extract] spelling collapsed: '{stripped}' -> '{collapsed}'")
+            stripped = collapsed
         if stripped.lower() in _na_phrases:
             value = "-"
             self._save_value(field, label, value)
@@ -378,11 +496,12 @@ class InclusiveCitizenAI:
         return json.dumps(self.responses, indent=2, ensure_ascii=False)
 
     def get_tts_summary(self) -> str:
-        """Return a short human-readable summary of collected responses."""
+        """Return a short human-readable summary of collected responses, translated to user_language."""
         if not self.responses:
             return "No information collected."
         lines = [f"{k} {v}" for k, v in self.responses.items() if v and v != "-"]
-        return ". ".join(lines[:10])  # cap at 10 fields to keep it speakable
+        summary = ". ".join(lines[:10])
+        return _translate_summary(summary, self.user_language)
 
     # ------------------------------------------------------------------
     @property

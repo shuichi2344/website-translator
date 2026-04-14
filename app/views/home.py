@@ -2856,6 +2856,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     _, _, _, _, transcribe_audio = _get_preloaded_modules()
                     text = transcribe_audio(tmp, normalize_to_question=False, country=state.country or "Malaysia") if transcribe_audio else ""
                     _os.remove(tmp)
+                    # Collapse spelled-out input before echoing and submitting
+                    from engine.insert_doc.document_LLM import _collapse_spelled
+                    text = _collapse_spelled(text)
 
                 def _done(t=text):
                     _iv_is_processing[0] = False

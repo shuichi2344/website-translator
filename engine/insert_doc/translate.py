@@ -3,6 +3,7 @@ translate.py — Translate text using the Sailor2-8B GGUF model (CPU-optimised).
 Sailor2 is purpose-built for Southeast Asian languages.
 """
 
+import re
 from llama_cpp import Llama
 
 _llm_instance: Llama | None = None
@@ -38,14 +39,12 @@ def translate(sentence: str, language: str) -> str:
     if not sentence or not sentence.strip():
         return sentence
 
-    import re as _re
-
     prompt = (
         f"<|im_start|>system\n"
         f"You are a translator. Output ONLY the translated sentence. No explanations, no notes, no language names.\n"
         f"<|im_end|>\n"
         f"<|im_start|>user\n"
-        f"Translate this question into {language}. Reply with the translation only:\n"
+        f"Translate the following text into {language}. Reply with the translation only:\n"
         f"{sentence}\n"
         f"<|im_end|>\n"
         f"<|im_start|>assistant\n"
@@ -73,17 +72,17 @@ def translate(sentence: str, language: str) -> str:
 
         # Remove leaked meta-commentary (e.g. "dalam bahasa Melayu", "in Malay language")
         for pattern in _LEAK_PATTERNS:
-            result = _re.sub(pattern, '', result, flags=_re.IGNORECASE).strip()
+            result = re.sub(pattern, '', result, flags=re.IGNORECASE).strip()
 
         # Strip residual brackets, parens, slashes (including fullwidth Chinese variants)
-        result = _re.sub(r'[\(\)\[\]\/\\（）【】]+', '', result).strip()
-        result = _re.sub(r'[（(][^）)]*[）)]', '', result).strip()  # remove parenthetical phrases
+        result = re.sub(r'[\(\)\[\]\/\\（）【】]+', '', result).strip()
+        result = re.sub(r'[（(][^）)]*[）)]', '', result).strip()  # remove parenthetical phrases
 
         # Collapse repeated characters (e.g. "222222..." hallucination)
-        result = _re.sub(r'(.)\1{4,}', r'\1', result).strip()
+        result = re.sub(r'(.)\1{4,}', r'\1', result).strip()
 
         # Take only the first sentence if multiple leaked through (handles CJK punctuation too)
-        first = _re.split(r'(?<=[.?!？。！])\s*', result)[0].strip()
+        first = re.split(r'(?<=[.?!？。！])\s*', result)[0].strip()
         if first:
             result = first
 
@@ -96,3 +95,117 @@ def translate(sentence: str, language: str) -> str:
     except Exception as e:
         print(f"[translate] Sailor2 failed ({type(e).__name__}: {e})")
         return sentence
+
+
+def translate_summary(summary: str, language: str) -> str:
+    """
+    Translate a multi-sentence form summary into *language*.
+    Handles longer text than translate() by splitting into sentences,
+    translating each, then rejoining.
+
+    Args:
+        summary:  The summary string (e.g. from get_tts_summary()).
+        language: Target language name, e.g. "Malay", "Thai".
+
+    Returns:
+        Translated summary, or the original on failure.
+    """
+    if not summary or not summary.strip():
+        return summary
+    if language.lower() in ("english", "en"):
+        return summary
+
+    # Split on ". " boundaries so each chunk fits within the model's context
+    sentences = re.split(r'(?<=\.)\s+', summary.strip())
+    translated = [translate(s, language) for s in sentences if s.strip()]
+    return " ".join(translated)
+
+
+# Labels whose values must never be translated (identity / contact data)
+_NO_TRANSLATE_KEYWORDS = {
+    'name', 'nama', 'phone', 'tel', 'mobile', 'fax',
+    'email', 'e-mail', 'emel', 'ic ', 'i/c', 'nric',
+    'passport', 'policy number', 'nombor polisi',
+    'date of birth', 'tarikh lahir', 'birth date',
+    'date of incident', 'tarikh kejadian',
+    'postcode', 'zip', 'poskod',
+    'address', 'alamat', 'addr',
+}
+
+
+def _should_skip_translation(label: str) -> bool:
+    """Return True if the field value should NOT be translated."""
+    lower = label.lower()
+    return any(kw in lower for kw in _NO_TRANSLATE_KEYWORDS)
+
+
+# Map from language name (as used in map.json) to ISO 639-1 code
+_LANGUAGE_TO_ISO = {
+    'english':    'en',
+    'malay':      'ms',
+    'malaysian':  'ms',
+    'bahasa':     'ms',
+    'thai':       'th',
+    'vietnamese': 'vi',
+    'tagalog':    'tl',
+    'filipino':   'tl',
+    'indonesian': 'id',
+    'chinese':    'zh',
+    'mandarin':   'zh',
+    'tamil':      'ta',
+    'burmese':    'my',
+    'khmer':      'km',
+    'lao':        'lo',
+}
+
+
+def _detect_lang_iso(text: str) -> str:
+    """Return ISO 639-1 code for the detected language, or 'unknown' on failure."""
+    try:
+        from fast_langdetect import detect as _fl_detect
+        results = _fl_detect(text)
+        if isinstance(results, list) and results:
+            return results[0].get('lang', 'unknown').lower()
+        if isinstance(results, dict):
+            return results.get('lang', 'unknown').lower()
+    except Exception as e:
+        print(f"[translate] lang detect failed: {e}")
+    return 'unknown'
+
+
+def _lang_name_to_iso(language: str) -> str:
+    """Convert a language name like 'Malay' to its ISO 639-1 code."""
+    return _LANGUAGE_TO_ISO.get(language.lower().strip(), 'unknown')
+
+
+def translate_field_value(value: str, label: str, language: str) -> str:
+    """
+    Translate a single form field *value* into *language*, unless:
+    - the field is an identity/contact field (name, phone, email, etc.)
+    - the value is already in the target language
+    - the value is purely numeric/symbolic
+
+    Args:
+        value:    The user's answer to translate.
+        label:    The field label (used to decide whether to skip translation).
+        language: Target language name, e.g. "Malay", "English", "Thai".
+
+    Returns:
+        Translated value, or the original value if translation is skipped/fails.
+    """
+    if not value or not value.strip():
+        return value
+    if _should_skip_translation(label):
+        return value
+    # Purely numeric / symbolic — no translation needed
+    if re.match(r'^[\d\s\-\/\.\,\+\(\)]+$', value.strip()):
+        return value
+    # Skip if the value is already in the target language
+    target_iso = _lang_name_to_iso(language)
+    if target_iso != 'unknown':
+        detected_iso = _detect_lang_iso(value)
+        if detected_iso == target_iso:
+            print(f"[translate] skip — already {language}: '{value[:40]}'")
+            return value
+    return translate(value, language)
+
