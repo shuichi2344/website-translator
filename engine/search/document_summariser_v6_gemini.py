@@ -319,8 +319,63 @@ class DocumentSummarizer:
             print("   • Complex table recognition active")
             print("   • Layout preservation active")
             
-            # Convert document using Docling
-            result = self.converter.convert(file_path)
+            # Convert document using Docling with retry logic
+            max_retries = 3
+            result = None
+            last_error = None
+            
+            for attempt in range(max_retries):
+                try:
+                    if attempt > 0:
+                        print(f"   🔄 Retry attempt {attempt + 1}/{max_retries}...")
+                        # Add a small delay between retries
+                        import time
+                        time.sleep(1)
+                    
+                    result = self.converter.convert(file_path)
+                    
+                    # Check if conversion was successful
+                    if result and result.document:
+                        # Check for failed pages
+                        failed_pages = []
+                        if hasattr(result, 'errors') and result.errors:
+                            for error in result.errors:
+                                if 'page' in str(error).lower():
+                                    failed_pages.append(str(error))
+                        
+                        if failed_pages and attempt < max_retries - 1:
+                            print(f"   ⚠️  Some pages failed preprocessing: {len(failed_pages)} errors")
+                            print(f"   Retrying to recover failed pages...")
+                            continue  # Retry
+                        elif failed_pages:
+                            print(f"   ⚠️  {len(failed_pages)} pages had preprocessing issues (continuing with available content)")
+                        
+                        break  # Success
+                    
+                except Exception as e:
+                    last_error = e
+                    error_msg = str(e).lower()
+                    
+                    # Check if it's a memory error
+                    if 'bad_alloc' in error_msg or 'memory' in error_msg:
+                        print(f"   ⚠️  Memory allocation error on attempt {attempt + 1}")
+                        if attempt < max_retries - 1:
+                            print(f"   Retrying with reduced memory footprint...")
+                            # Force garbage collection to free memory
+                            import gc
+                            gc.collect()
+                            continue
+                    else:
+                        print(f"   ⚠️  Error on attempt {attempt + 1}: {e}")
+                        if attempt < max_retries - 1:
+                            continue
+                    
+                    # If last attempt, raise the error
+                    if attempt == max_retries - 1:
+                        raise
+            
+            if not result or not result.document:
+                raise Exception("Failed to convert document after all retry attempts")
             
             # Export to Markdown (preserves tables and layout)
             markdown_text = result.document.export_to_markdown()
