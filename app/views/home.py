@@ -1796,20 +1796,36 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     # Update conversation title with first message (if it's a default title)
                     def update_title():
                         try:
-                            convos = rag.mysql.get_user_conversations(state.user_id)
-                            current_convo = next((c for c in convos if c['conversation_id'] == state.conversation_id), None)
-                            if current_convo and current_convo.get('title', '') == 'New Chat':
+                            # Get fresh connection for this thread
+                            from engine.database.mysql_handler import MySQLHandler
+                            mysql = MySQLHandler()
+                            
+                            # Check if title is still "New Chat"
+                            cursor = mysql.connection.cursor(dictionary=True)
+                            cursor.execute(
+                                "SELECT title FROM conversations WHERE conversation_id = %s",
+                                (state.conversation_id,)
+                            )
+                            result = cursor.fetchone()
+                            
+                            if result and result.get('title') == 'New Chat':
                                 # Generate a better title from the first message
                                 title = msg[:50] + "..." if len(msg) > 50 else msg
-                                rag.mysql.cursor.execute(
+                                cursor.execute(
                                     "UPDATE conversations SET title = %s WHERE conversation_id = %s",
                                     (title, state.conversation_id)
                                 )
-                                rag.mysql.connection.commit()
+                                mysql.connection.commit()
+                                print(f"✅ Updated conversation title to: {title}")
                                 # Refresh sidebar
                                 load_conversations()
+                            
+                            cursor.close()
+                            mysql.close()
                         except Exception as e:
                             print(f"⚠️ Failed to update conversation title: {e}")
+                            import traceback
+                            traceback.print_exc()
                     
                     threading.Thread(target=update_title, daemon=True).start()
                     
