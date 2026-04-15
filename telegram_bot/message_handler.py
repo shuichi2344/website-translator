@@ -256,29 +256,34 @@ class TelegramMessageHandler:
                 return text  # Return original if all translation attempts fail
     
     def _extract_document_text_sync(self, file_path: str, lang_code: str = "en") -> Optional[str]:
-        """Synchronous document text extraction (runs in thread pool)"""
+        """Synchronous document text extraction with multi-level caching (runs in thread pool)"""
         try:
-            # Check cache first (thread-safe)
+            # Level 1: Check in-memory cache first (fastest - thread-safe)
             with self._extraction_cache_lock:
                 if file_path in self.extraction_cache:
                     cached = self.extraction_cache[file_path]
                     # Cache valid for 30 minutes
                     if time.time() - cached['timestamp'] < 1800:
-                        print(f"✅ Using cached extraction for {file_path}")
+                        print(f"✅ [L1 Cache Hit] Using in-memory cached extraction")
                         return cached['text']
             
             print(f"📄 Extracting text from document...")
+            # Level 2: DocumentSummarizer checks ChromaDB cache automatically
+            # Uses file path + mtime + size as cache key
+            # If cache hit: prints "♻️ Using cached extracted text (skipping Docling)"
+            # If cache miss: runs Docling and caches result in ChromaDB
             summarizer = DocumentSummarizer(target_lang=lang_code)
             text = summarizer.extract_text_from_document(file_path)
             
             if text:
-                # Cache the extraction (thread-safe)
+                # Store in Level 1 cache for faster subsequent access (thread-safe)
                 with self._extraction_cache_lock:
                     self.extraction_cache[file_path] = {
                         'text': text,
                         'timestamp': time.time()
                     }
                 print(f"✅ Text extracted: {len(text)} characters")
+                print(f"   💾 Cached in memory (L1) and ChromaDB (L2)")
                 return text
             
             return None

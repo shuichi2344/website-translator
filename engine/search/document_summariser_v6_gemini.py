@@ -142,8 +142,8 @@ class DocumentSummarizer:
         sample = text[:10000] if len(text) > 10000 else text
         return hashlib.md5(sample.encode('utf-8')).hexdigest()
     
-    def _store_chunks_in_db(self, chunks, embeddings, doc_id):
-        """Store chunks and embeddings in ChromaDB"""
+    def _store_chunks_in_db(self, chunks, embeddings, doc_id, full_text=None):
+        """Store chunks, embeddings, and optionally full extracted text in ChromaDB"""
         if not self.use_vector_db or not self.collection:
             return
         
@@ -151,6 +151,12 @@ class DocumentSummarizer:
             # Prepare data for ChromaDB
             ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
             metadatas = [{"chunk_index": i, "doc_id": doc_id} for i in range(len(chunks))]
+            
+            # Add full text to first chunk's metadata if provided
+            if full_text and len(metadatas) > 0:
+                metadatas[0]["full_text"] = full_text
+                metadatas[0]["has_full_text"] = True
+                print(f"   💾 Caching full extracted text ({len(full_text)} chars)")
             
             # Add to collection
             self.collection.add(
@@ -164,6 +170,36 @@ class DocumentSummarizer:
             
         except Exception as e:
             print(f"   ⚠️  Failed to store in ChromaDB: {e}")
+    
+    def _get_full_text_from_db(self, doc_id):
+        """Retrieve cached full text from ChromaDB"""
+        if not self.use_vector_db or not self.collection:
+            return None
+        
+        try:
+            # Query for first chunk which contains full text
+            # Use $and operator for multiple conditions
+            results = self.collection.get(
+                where={
+                    "$and": [
+                        {"doc_id": doc_id},
+                        {"chunk_index": 0}
+                    ]
+                },
+                include=["metadatas"]
+            )
+            
+            if results and results['metadatas'] and len(results['metadatas']) > 0:
+                metadata = results['metadatas'][0]
+                if metadata.get('has_full_text') and 'full_text' in metadata:
+                    full_text = metadata['full_text']
+                    print(f"   ✅ Retrieved cached full text ({len(full_text)} chars)")
+                    return full_text
+            
+        except Exception as e:
+            print(f"   ⚠️  Error retrieving full text from DB: {e}")
+        
+        return None
     
     def _query_vector_db(self, query_embedding, n_results=10):
         """Query ChromaDB for most similar chunks"""
@@ -317,6 +353,21 @@ class DocumentSummarizer:
                 print("   Using Gemini Vision for image analysis (OCR + visual understanding)...")
                 return self._extract_text_from_image_with_vision(file_path)
             
+            # Check cache first (before expensive Docling processing)
+            if self.use_vector_db:
+                # Generate doc_id from file path + modification time for file-based caching
+                import os
+                import hashlib
+                file_stat = os.stat(file_path)
+                cache_key = f"{file_path}_{file_stat.st_mtime}_{file_stat.st_size}"
+                doc_id = hashlib.md5(cache_key.encode('utf-8')).hexdigest()
+                
+                # Try to get cached full text
+                cached_text = self._get_full_text_from_db(doc_id)
+                if cached_text:
+                    print(f"   ♻️  Using cached extracted text (skipping Docling)")
+                    return cached_text
+            
             if file_ext != '.pdf':
                 print(f"⚠️  Docling works best with PDFs. File type: {file_ext}")
                 print("   Converting to PDF or using direct processing...")
@@ -402,6 +453,21 @@ class DocumentSummarizer:
                 print(f"   • Tables detected: Yes")
             
             print(f"✅ Document processed successfully\n")
+            
+            # Cache the extracted text if vector DB is enabled
+            if self.use_vector_db and markdown_text:
+                try:
+                    import os
+                    import hashlib
+                    file_stat = os.stat(file_path)
+                    cache_key = f"{file_path}_{file_stat.st_mtime}_{file_stat.st_size}"
+                    doc_id = hashlib.md5(cache_key.encode('utf-8')).hexdigest()
+                    
+                    # Create minimal chunks and embeddings just for caching
+                    chunks = self._split_into_chunks(markdown_text, max_words=2000, overlap=300)
+                    self._embed_chunks(chunks, doc_id=doc_id, full_text=markdown_text)
+                except Exception as cache_error:
+                    print(f"   ⚠️  Failed to cache extracted text: {cache_error}")
             
             return markdown_text
             
@@ -661,7 +727,7 @@ Extract all text now:"""
                 # Create and store embeddings even for short documents
                 chunks = self._split_into_chunks(text, max_words=2000, overlap=300)
                 print(f"   📦 Creating embeddings for {len(chunks)} chunk(s) (for caching)...")
-                self._embed_chunks(chunks, doc_id=doc_id)
+                self._embed_chunks(chunks, doc_id=doc_id, full_text=text)
         
         if word_count <= 5000:
             return self._summarize_chunk(text, num_sentences)
@@ -794,7 +860,7 @@ Simple summary (write exactly {num_sentences} SHORT, SIMPLE bullet points):"""
             print("   Using extractive method...")
             return self._summarize_extractive(text, num_sentences)
     
-    def _embed_chunks(self, chunks, doc_id=None):
+    def _embed_chunks(self, chunks, doc_id=None, full_text=None):
         """Create embeddings for text chunks using EmbeddingGemma and store in ChromaDB"""
         if not self.use_embeddings or not self.embedding_model:
             return None
@@ -809,9 +875,9 @@ Simple summary (write exactly {num_sentences} SHORT, SIMPLE bullet points):"""
             )
             print(f"   ✅ Generated {len(embeddings)} embeddings (768-dim)")
             
-            # Store in ChromaDB if enabled
+            # Store in ChromaDB if enabled (with full text)
             if self.use_vector_db and doc_id:
-                self._store_chunks_in_db(chunks, embeddings, doc_id)
+                self._store_chunks_in_db(chunks, embeddings, doc_id, full_text=full_text)
             
             return embeddings
         except Exception as e:
@@ -889,11 +955,12 @@ Simple summary (write exactly {num_sentences} SHORT, SIMPLE bullet points):"""
                 else:
                     # Fallback: create new chunks
                     chunks = self._split_into_chunks(text, max_words=2000, overlap=300)
-                    embeddings = self._embed_chunks(chunks, doc_id=doc_id)
+                    embeddings = self._embed_chunks(chunks, doc_id=doc_id, full_text=text)
             else:
                 # New document: create chunks and embeddings
                 chunks = self._split_into_chunks(text, max_words=2000, overlap=300)
                 print(f"   Split into {len(chunks)} chunks with overlap")
+                embeddings = self._embed_chunks(chunks, doc_id=doc_id, full_text=text)
                 embeddings = self._embed_chunks(chunks, doc_id=doc_id)
             
             # MAP PHASE: Summarize ALL chunks (not just top 10)
@@ -1212,12 +1279,12 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
                 print(f"   ♻️  Using {len(chunks)} cached chunks")
             else:
                 chunks = self._split_into_chunks(text, max_words=1000, overlap=200)
-                embeddings = self._embed_chunks(chunks, doc_id=doc_id)
+                embeddings = self._embed_chunks(chunks, doc_id=doc_id, full_text=text)
         else:
             # Split into chunks
             chunks = self._split_into_chunks(text, max_words=1000, overlap=200)
             print(f"   Split into {len(chunks)} chunks")
-            embeddings = self._embed_chunks(chunks, doc_id=doc_id)
+            embeddings = self._embed_chunks(chunks, doc_id=doc_id, full_text=text)
         
         # Rank by relevance to question (uses ChromaDB if available)
         # For Q&A, we DO want to use semantic ranking to find relevant chunks
