@@ -38,3 +38,4 @@ chroma.sqlite3
 *.tmp
 *.bak
 *.backup
+chroma_db/chroma.sqlite3
