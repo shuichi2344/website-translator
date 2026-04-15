@@ -68,18 +68,48 @@ def get_llm_instance():
 # UTILITIES
 # ==========================
 
-def llm_process(text, task):
+def _detect_dialect(text: str) -> str:
+    """
+    Detect dialect/language using fast_langdetect instead of the LLM.
+    Maps ISO 639-1 codes to ASEAN dialect names.
+    """
+    _ISO_TO_DIALECT = {
+        "en": "English",
+        "ms": "Malay",
+        "id": "Indonesian",
+        "th": "Thai",
+        "vi": "Vietnamese",
+        "tl": "Tagalog",
+        "fil": "Tagalog",
+        "zh": "Mandarin",
+        "ta": "Tamil",
+        "my": "Burmese",
+        "km": "Khmer",
+        "lo": "Lao",
+        "su": "Sundanese",
+        "jv": "Javanese",
+    }
+    try:
+        from fast_langdetect import detect as _fl_detect
+        results = _fl_detect(text)
+        if isinstance(results, list) and results:
+            lang = results[0].get("lang", "en").lower()
+        elif isinstance(results, dict):
+            lang = results.get("lang", "en").lower()
+        else:
+            lang = "en"
+        return _ISO_TO_DIALECT.get(lang, lang.upper())
+    except Exception as e:
+        print(f"[dialect] fast_langdetect failed: {e}")
+        return "English"
+
+
+def llm_process(text, task, country: str = "Malaysia"):
     if not text or len(text) < 2:
         return {"dialect": "N/A", "question": "No input detected", "query": "N/A"}
     
     if task == "dialect":
-        sys_msg = (
-        "You are an ASEAN Linguistic Expert. Detect the dialect(s) from this list: "
-        "Manglish, Singlish, Thai-English, Malay, Hokkien, Cantonese, Tagalog, Taglish, Indonesian, Thai, Lao, Burmese, Sundanese, Vietnamese, Khmer.\n"
-        "RULE: If multiple dialects are used, combine them with a '+'.\n"
-        "Example: 'Sawadika, where is the shop?' -> Thai+English\n"
-        "Output ONLY the names. No extra words or parentheses."
-    )
+        return {"dialect": _detect_dialect(text), "question": "N/A", "query": "N/A"}
     elif task == "question":
         sys_msg = (
             "You are an English Translator. Rewrite the input into ONE clear Standard English question.\n"

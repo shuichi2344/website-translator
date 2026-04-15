@@ -50,7 +50,7 @@ except Exception:
     pass
 
 # Load environment variables
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=True)
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
