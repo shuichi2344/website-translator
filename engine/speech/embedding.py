@@ -17,14 +17,15 @@ model = SentenceTransformer('google/embeddinggemma-300m')
 
 db_manager = ChromaDBConfig()
 
-def ingest_to_chroma(doc_id, text_chunks, source_urls=None):
+def ingest_to_chroma(doc_id, text_chunks, source_urls=None, country=None):
     """
-    Ingest text chunks into ChromaDB with optional source URL metadata
+    Ingest text chunks into ChromaDB with optional source URL and country metadata
     
     Args:
         doc_id: Unique document identifier
         text_chunks: List of text chunks to store
         source_urls: Optional dict mapping chunk index to source URL
+        country: Optional country name (e.g., "Malaysia", "Thailand") for filtering
     """
     if not text_chunks:
         return
@@ -39,11 +40,18 @@ def ingest_to_chroma(doc_id, text_chunks, source_urls=None):
     
     # 2. Prepare metadata for each chunk
     metadatas = []
+    source_count = 0
     for i in range(len(text_chunks)):
         metadata = {"doc_id": doc_id}
         if source_urls and i in source_urls:
             metadata["source_url"] = source_urls[i]
+            source_count += 1
+        if country:
+            metadata["country"] = country
         metadatas.append(metadata)
+    
+    if source_count > 0:
+        print(f"   📎 Storing {source_count} chunks with source URLs")
     
     # 3. Call the Manager to store them permanently with metadata
     db_manager.add_document_chunks(
@@ -53,7 +61,7 @@ def ingest_to_chroma(doc_id, text_chunks, source_urls=None):
         metadatas=metadatas
     )
 
-def query_from_chroma(question, top_k=5, min_similarity=0.4):
+def query_from_chroma(question, top_k=5, min_similarity=0.4, country=None):
     """
     Search for context directly from the ChromaDB storage.
     
@@ -62,10 +70,12 @@ def query_from_chroma(question, top_k=5, min_similarity=0.4):
         top_k: Number of results to return
         min_similarity: Minimum similarity threshold (0-1). Chunks below this are filtered out.
                        Lower distance = higher similarity. Default 0.4 = 40% similarity required.
+        country: Optional country filter (e.g., "Malaysia", "Thailand"). If provided, only returns
+                chunks from that country. If None, returns chunks from all countries.
     
     Returns:
         tuple: (chunks, sources)
-        - chunks: list of relevant text chunks (filtered by similarity)
+        - chunks: list of relevant text chunks (filtered by similarity and country)
         - sources: list of source URLs (or None if not available)
     """
     # 1. Get the collection from the manager
@@ -78,20 +88,31 @@ def query_from_chroma(question, top_k=5, min_similarity=0.4):
         normalize_embeddings=True
     )
     
-    # 3. Search ChromaDB directly with distances
-    # Chroma handles the mapping of vectors back to text automatically!
-    results = collection.query(
-        query_embeddings=query_vector.tolist(),
-        n_results=top_k,
-        include=["documents", "metadatas", "distances"]
-    )
+    # 3. Build where filter for country if specified
+    where_filter = None
+    if country:
+        where_filter = {"country": country}
+        print(f"   🌍 Filtering by country: {country}")
     
-    # 4. Extract chunks, distances, and source URLs
+    # 4. Search ChromaDB directly with distances and optional country filter
+    # Chroma handles the mapping of vectors back to text automatically!
+    query_params = {
+        "query_embeddings": query_vector.tolist(),
+        "n_results": top_k,
+        "include": ["documents", "metadatas", "distances"]
+    }
+    
+    if where_filter:
+        query_params["where"] = where_filter
+    
+    results = collection.query(**query_params)
+    
+    # 5. Extract chunks, distances, and source URLs
     chunks = results['documents'][0] if results['documents'] else []
     metadatas = results['metadatas'][0] if results.get('metadatas') else []
     distances = results['distances'][0] if results.get('distances') else []
     
-    # 5. Filter chunks by similarity threshold
+    # 6. Filter chunks by similarity threshold
     # ChromaDB returns L2 distance (lower is better)
     # For normalized embeddings: distance = 2 * (1 - cosine_similarity)
     # So: cosine_similarity = 1 - (distance / 2)
@@ -106,11 +127,12 @@ def query_from_chroma(question, top_k=5, min_similarity=0.4):
             filtered_chunks.append(chunk)
             if i < len(metadatas):
                 filtered_metadatas.append(metadatas[i])
-            print(f"   ✓ Chunk {i+1}: distance={distance:.3f}, similarity={1 - (distance/2):.3f}")
+            chunk_country = metadatas[i].get('country', 'Unknown') if i < len(metadatas) else 'Unknown'
+            print(f"   ✓ Chunk {i+1}: distance={distance:.3f}, similarity={1 - (distance/2):.3f}, country={chunk_country}")
         else:
             print(f"   ✗ Chunk {i+1}: distance={distance:.3f}, similarity={1 - (distance/2):.3f} (below threshold)")
     
-    # 6. Extract unique source URLs from filtered results
+    # 7. Extract unique source URLs from filtered results
     sources = []
     seen_urls = set()
     for metadata in filtered_metadatas:
@@ -119,5 +141,8 @@ def query_from_chroma(question, top_k=5, min_similarity=0.4):
             if url not in seen_urls:
                 seen_urls.add(url)
                 sources.append(url)
+    
+    if sources:
+        print(f"   📎 Retrieved {len(sources)} unique source URLs from ChromaDB")
     
     return filtered_chunks, sources

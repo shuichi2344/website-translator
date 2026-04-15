@@ -1272,14 +1272,14 @@ Answer (in simple, clear language):"""
 def main():
     print("=" * 60)
     print("📄 Document & Website Summarizer")
-    print("Docling + Google Gemini 2.0 Flash")
+    print("Docling + Google Gemini 3.0 Flash")
     print("=" * 60)
     print("\nFeatures:")
     print("  • Automatic mixed-language detection")
     print("  • Complex table recognition")
     print("  • Layout preservation")
     print("  • PDF processing (no image conversion needed!)")
-    print("  • Google Gemini 2.0 Flash for AI summarization")
+    print("  • Google Gemini 3.0 Flash for AI summarization")
     print("  • Ollama llama3.2 fallback")
     
     print("\nWhat would you like to summarize?")

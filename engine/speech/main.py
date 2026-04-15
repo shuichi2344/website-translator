@@ -54,10 +54,13 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
     try:
         # Query ChromaDB with embedded question
         # min_similarity=0.4 means we need at least 40% similarity
-        relevant_info, sources = query_from_chroma(question, top_k=5, min_similarity=0.4)
+        # Filter by country to prevent wrong-country answers
+        relevant_info, sources = query_from_chroma(question, top_k=10, min_similarity=0.4, country=country)
         
+        # Use only top 3 chunks for accuracy
         if relevant_info and len(relevant_info) >= 3:
-            print(f"✅ Found {len(relevant_info)} relevant chunks in Vector Database")
+            relevant_info = relevant_info[:3]
+            print(f"✅ Found {len(relevant_info)} relevant chunks in Vector Database (using top 3)")
             if sources:
                 print(f"   📎 From {len(sources)} source URLs")
             print("\n--- Relevant Data Retrieved ---")
@@ -114,12 +117,22 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
         # Step D: Embedding → Store in Vector Database
         print(f"[Step D] Storing embeddings in Vector Database with source URLs...")
         doc_id = f"gov_search_{country}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        ingest_to_chroma(doc_id, all_chunks, source_urls=chunk_to_url_map)
-        print(f"✅ Stored in Vector Database with ID: {doc_id}")
+        ingest_to_chroma(doc_id, all_chunks, source_urls=chunk_to_url_map, country=country)
+        print(f"✅ Stored in Vector Database with ID: {doc_id} (country: {country})")
 
-        # Now query again to get relevant chunks with sources
+        # Query for top chunks with 40% similarity threshold
         print(f"\n🔍 [RAG Step 1-3] Re-querying Vector Database with new data...")
-        relevant_info, sources = query_from_chroma(question, top_k=5, min_similarity=0.4)
+        relevant_info, sources = query_from_chroma(question, top_k=10, min_similarity=0.4, country=country)
+        
+        # Use only top 3 chunks above 40% threshold for accuracy
+        if relevant_info and len(relevant_info) >= 3:
+            relevant_info = relevant_info[:3]
+            print(f"✅ Using top 3 most relevant chunks (all above 40% similarity)")
+        elif relevant_info and len(relevant_info) > 0:
+            print(f"✅ Using {len(relevant_info)} chunks above 40% threshold")
+        else:
+            print(f"⚠️ No chunks above 40% threshold, using top 3 chunks from fresh data")
+            relevant_info = all_chunks[:3]
         
         print("\n--- Most Relevant Data Retrieved ---")
         for i, snippet in enumerate(relevant_info, 1):

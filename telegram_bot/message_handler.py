@@ -454,9 +454,9 @@ class TelegramMessageHandler:
     def _generate_simple_response(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
         Generate a simple, child-friendly response for Telegram bot
-        Uses Gemini as primary with retry logic, better fallback model
+        Model hierarchy: Gemini 3.1 Flash Lite (primary with retries) → Gemini 3.0 Flash (backup) → qwen2.5:7b (local fallback)
         """
-        # Try Gemini with retry logic (handles rate limits)
+        # Try Gemini 3.1 Flash Lite with retry logic (handles rate limits)
         max_retries = 3
         retry_delay = 2  # seconds
         
@@ -472,10 +472,10 @@ class TelegramMessageHandler:
                     return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
                 
                 if attempt > 0:
-                    print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for Gemini...")
+                    print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for Gemini 3.1 Flash Lite...")
                     time.sleep(retry_delay * attempt)  # Exponential backoff
                 else:
-                    print(f"✨ Using Gemini (primary) for response generation...")
+                    print(f"✨ Using Gemini 3.1 Flash Lite (primary) for response generation...")
                 
                 client = genai.Client(api_key=api_key)
                 
@@ -508,7 +508,7 @@ IMPORTANT - Write in simple, clear {dialect}:
 Answer (in simple, clear {dialect}):"""
                 
                 response = client.models.generate_content(
-                    model='gemini-2.0-flash-exp',
+                    model='gemini-3.1-flash-lite-preview',
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0.4,
@@ -520,12 +520,12 @@ Answer (in simple, clear {dialect}):"""
                 if response and response.text:
                     # Clean up any markdown formatting
                     clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
-                    print(f"✅ Gemini response generated successfully")
+                    print(f"✅ Gemini 3.1 Flash Lite response generated successfully")
                     return clean_text
                 
                 # If no response, try next attempt
                 if attempt < max_retries - 1:
-                    print("⚠️ Gemini returned empty response, retrying...")
+                    print("⚠️ Gemini 3.1 Flash Lite returned empty response, retrying...")
                     continue
                     
             except Exception as e:
@@ -534,20 +534,92 @@ Answer (in simple, clear {dialect}):"""
                 # Check if it's a rate limit error
                 if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg or '429' in error_msg:
                     if attempt < max_retries - 1:
-                        print(f"⚠️ Gemini rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
+                        print(f"⚠️ Gemini 3.1 Flash Lite rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
                         continue
                     else:
-                        print(f"⚠️ Gemini rate limit exceeded after {max_retries} attempts")
-                        print(f"   Falling back to qwen2.5:7b (better than llama3.2)...")
+                        print(f"⚠️ Gemini 3.1 Flash Lite rate limit exceeded after {max_retries} attempts")
                 else:
-                    print(f"⚠️ Gemini error: {e}")
+                    print(f"⚠️ Gemini 3.1 Flash Lite error: {e}")
                     if attempt < max_retries - 1:
                         print(f"   Retrying...")
                         continue
         
-        # All Gemini attempts failed, use fallback
-        print("   Falling back to qwen2.5:7b (smarter model)...")
+        # All Gemini 3.1 Flash Lite attempts failed, try Gemini 3.0 Flash as backup
+        print("   Trying Gemini 3.0 Flash (backup model)...")
+        gemini_backup_response = self._generate_response_with_gemini_3_flash(user_question, relevant_chunks, dialect)
+        if gemini_backup_response:
+            return gemini_backup_response
+        
+        # All Gemini models failed, use Ollama fallback
+        print("   Falling back to qwen2.5:7b (local model)...")
         return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
+    
+    def _generate_response_with_gemini_3_flash(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
+        """
+        Backup response generation using Gemini 3.0 Flash
+        """
+        try:
+            from google import genai
+            from google.genai import types
+            
+            api_key = os.getenv('GEMINI_API_KEY')
+            if not api_key:
+                print("⚠️ Gemini API key not configured")
+                return ""
+            
+            print(f"✨ Using Gemini 3.0 Flash (backup)...")
+            
+            client = genai.Client(api_key=api_key)
+            
+            # Combine chunks into context
+            context = "\n---\n".join(relevant_chunks)
+            
+            prompt = f"""You are Bridge, the ASEAN government information assistant.
+Answer the user's question based ONLY on the provided government information.
+
+TARGET LANGUAGE: {dialect}
+USER QUESTION: {user_question}
+
+GOVERNMENT INFORMATION:
+{context}
+
+IMPORTANT - Write in simple, clear {dialect}:
+- YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
+- Use everyday words that kids understand (avoid technical jargon)
+- Keep sentences SHORT and SIMPLE (maximum 15-20 words per sentence)
+- Explain what things DO, not what they're called
+- If you must use a technical term, explain it in simple words right after
+- Focus on the MAIN IDEAS only - skip minor details
+- You can use bullet points (•) for lists
+- Do NOT include titles, headers, or bold text (**)
+- DO NOT write intro text like "Here are the bullet points"
+- LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
+- NO WEBSITES OR URLS: Do not mention any URLs
+- STOP when done - no polite closings like "hope this helps"
+
+Answer (in simple, clear {dialect}):"""
+            
+            response = client.models.generate_content(
+                model='gemini-2.0-flash-exp',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.4,
+                    top_p=0.95,
+                    max_output_tokens=2048,
+                )
+            )
+            
+            if response and response.text:
+                # Clean up any markdown formatting
+                clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
+                print(f"✅ Gemini 3.0 Flash response generated successfully")
+                return clean_text
+            
+            return ""
+            
+        except Exception as e:
+            print(f"⚠️ Gemini 3.0 Flash error: {e}")
+            return ""
     
     def _generate_response_with_ollama(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
@@ -781,10 +853,14 @@ Answer (in simple, clear English):"""
                 
                 # Query ChromaDB with embedded question
                 # min_similarity=0.4 means we need at least 40% similarity
-                cached_chunks, cached_sources = query_from_chroma(message_text, top_k=5, min_similarity=0.4)
+                # Filter by user's country to prevent wrong-country answers
+                user_country = user.get('country', self.default_country)
+                cached_chunks, cached_sources = query_from_chroma(message_text, top_k=10, min_similarity=0.4, country=user_country)
                 
+                # Use only top 3 chunks for accuracy
                 if cached_chunks and len(cached_chunks) >= 3:
-                    print(f"✅ Found {len(cached_chunks)} relevant chunks in Vector Database")
+                    cached_chunks = cached_chunks[:3]
+                    print(f"✅ Found {len(cached_chunks)} relevant chunks in Vector Database (using top 3)")
                     if cached_sources:
                         print(f"   📎 From {len(cached_sources)} source URLs")
                     relevant_chunks = cached_chunks
@@ -831,18 +907,31 @@ Answer (in simple, clear English):"""
                         from engine.speech.embedding import ingest_to_chroma
                         from datetime import datetime
                         doc_id = f"telegram_gov_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                        ingest_to_chroma(doc_id, all_chunks_with_map, source_urls=chunk_to_url_map)
-                        print(f"✅ [Step D] Stored embeddings in Vector Database with ID: {doc_id}")
+                        user_country = user.get('country', self.default_country)
+                        ingest_to_chroma(doc_id, all_chunks_with_map, source_urls=chunk_to_url_map, country=user_country)
+                        print(f"✅ [Step D] Stored embeddings in Vector Database with ID: {doc_id} (country: {user_country})")
                         
-                        # Now query again to get relevant chunks with sources
+                        # Query for top chunks with 40% similarity threshold
                         print(f"\n🔍 [RAG Step 1-3] Re-querying Vector Database with new data...")
-                        relevant_chunks, sources = query_from_chroma(message_text, top_k=5)
+                        relevant_chunks, sources = query_from_chroma(message_text, top_k=10, min_similarity=0.4, country=user_country)
+                        
+                        # Use only top 3 chunks above 40% threshold for accuracy
+                        if relevant_chunks and len(relevant_chunks) >= 3:
+                            relevant_chunks = relevant_chunks[:3]
+                            print(f"✅ Using top 3 most relevant chunks (all above 40% similarity)")
+                        elif relevant_chunks and len(relevant_chunks) > 0:
+                            print(f"✅ Using {len(relevant_chunks)} chunks above 40% threshold")
+                        else:
+                            print(f"⚠️ No chunks above 40% threshold, using top 3 chunks from fresh data")
+                            relevant_chunks = all_chunks_with_map[:3]
+                            sources = source_links
+                        
                         fetched_fresh_data = True
                         
                     except Exception as e:
                         print(f"⚠️ Failed to store in Vector Database: {e}")
                         # Use the chunks directly if storage failed
-                        relevant_chunks = all_chunks_with_map[:5]
+                        relevant_chunks = all_chunks_with_map[:3]
                         sources = source_links
                         fetched_fresh_data = True
                 
@@ -862,9 +951,8 @@ Answer (in simple, clear English):"""
                 dialect=dialect
             )
             
-            # Only add sources if we actually fetched fresh government data
-            # Don't add for greetings, casual chat, or cached responses
-            if sources and fetched_fresh_data:
+            # Add sources if available (from fresh data OR cached ChromaDB data)
+            if sources and len(sources) > 0:
                 response += "\n\n📚 <b>References:</b>"
                 for i, source in enumerate(sources, 1):
                     response += f"\n{i}. {source}"

@@ -279,6 +279,17 @@ def chat():
         # Step 3: Vector Database → Relevant Data
         # ═══════════════════════════════════════════════════════════════════
         
+        # Get user's country for filtering ChromaDB results
+        user_country = None
+        if user_id and auth_handler:
+            try:
+                user_profile = auth_handler.get_user_profile(user_id)
+                if user_profile:
+                    user_country = user_profile.get('country')
+                    print(f"👤 User country: {user_country}")
+            except Exception as e:
+                print(f"⚠️ Failed to get user country: {e}")
+        
         print("\n🔍 [RAG Step 1-3] Querying Vector Database (ChromaDB)...")
         relevant_chunks = []
         cached_sources = []
@@ -289,7 +300,8 @@ def chat():
             
             # Query ChromaDB with embedded question
             # min_similarity=0.4 means we need at least 40% similarity
-            relevant_chunks, cached_sources = query_from_chroma(message, top_k=5, min_similarity=0.4)
+            # Filter by user's country to prevent wrong-country answers
+            relevant_chunks, cached_sources = query_from_chroma(message, top_k=5, min_similarity=0.4, country=user_country)
             
             if relevant_chunks and len(relevant_chunks) >= 3:
                 print(f"✅ Found {len(relevant_chunks)} relevant chunks in Vector Database")
@@ -365,8 +377,10 @@ def chat():
                     from engine.speech.embedding import ingest_to_chroma
                     from datetime import datetime
                     doc_id = f"browser_web_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                    ingest_to_chroma(doc_id, result['sources'])
-                    print(f"✅ [Step D] Stored website content in Vector Database")
+                    # Store with user's country if available
+                    ingest_to_chroma(doc_id, result['sources'], country=user_country)
+                    country_info = f" (country: {user_country})" if user_country else ""
+                    print(f"✅ [Step D] Stored website content in Vector Database{country_info}")
                 except Exception as e:
                     print(f"⚠️ Failed to store in Vector Database: {e}")
         else:
@@ -389,26 +403,10 @@ def chat():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
-                    doc_id = f"browser_web_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                    ingest_to_chroma(doc_id, result['sources'])
-                    print(f"✅ Stored website content in ChromaDB for future use")
-                except Exception as e:
-                    print(f"⚠️ Failed to store in ChromaDB: {e}")
-        else:
-            # General Q&A (could integrate with other sources)
-            result = {'summary': 'Response generation not yet implemented for general chat'}
-        
-        # Save bot response
-        if conversation_id and result:
-            bot_message = result.get('summary', result.get('answer', ''))
-            rag_integration.save_bot_message(conversation_id, bot_message)
-        
-        # Add context info to response
-        if result and context:
-            result['context_used'] = len(context.get('relevant_messages', []))
-            result['conversation_id'] = conversation_id
-        
-        return jsonify({'success': True, 'data': result})
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EXISTING ENDPOINTS (Document & Website Summarization)
+# ═══════════════════════════════════════════════════════════════════════════
         
     except Exception as e:
         print(f"❌ Chat error: {e}")
@@ -766,7 +764,7 @@ if __name__ == '__main__':
     print("=" * 60)
     print("Bridge API Backend - Document Summarizer")
     print("API-only server for browser extension and Flet app")
-    print("Docling + Google Gemini 2.0 Flash + MySQL + ChromaDB")
+    print("Docling + Google Gemini 3.0 Flash + MySQL + ChromaDB")
     print("=" * 60)
     print(f"\nPython executable: {sys.executable}")
     print(f"gTTS available: {GTTS_AVAILABLE}")

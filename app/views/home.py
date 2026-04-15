@@ -246,7 +246,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
     _DOC_NOTES = [
         "Maximum file size: 50MB",
-        "Docling + Google Gemini 2.0 Flash — Advanced AI summarization",
+        "Docling + Google Gemini 3.0 Flash — Advanced AI summarization",
         "RAG Q&A: Ask specific questions about documents or websites",
         "Automatic language detection and complex table recognition",
         "Supports PDF and images (PNG, JPG, JPEG, BMP, TIFF)",
@@ -256,7 +256,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
     _WEB_NOTES = [
         "Maximum file size: 50MB",
-        "Docling + Google Gemini 2.0 Flash — Advanced AI summarization",
+        "Docling + Google Gemini 3.0 Flash — Advanced AI summarization",
         "RAG Q&A: Ask specific questions about documents or websites",
         "Automatic language detection and complex table recognition",
         "Supports PDF and images (PNG, JPG, JPEG, BMP, TIFF)",
