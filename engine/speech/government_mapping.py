@@ -29,30 +29,34 @@ def get_country_suffix(country_name):
 
 def find_specific_gov_links(query, country_suffix):
     """
-    Returns a list of specific deep links from government sites using Serper.dev.
+    Returns a list of specific deep links from government sites using SerpAPI.
     """
-    api_key = os.getenv("serper")
+    api_key = os.getenv("SERP_API_KEY")
 
     if not api_key:
-        print("⚠️  serper key not found in .env file!")
+        print("⚠️  SERP_API_KEY not found in .env file!")
         return []
 
     search_query = f"{query} site:.gov.{country_suffix}"
 
     try:
-        response = requests.post(
-            "https://google.serper.dev/search",
-            headers={
-                "X-API-KEY": api_key,
-                "Content-Type": "application/json",
+        # SerpAPI endpoint (not Serper.dev)
+        response = requests.get(
+            "https://serpapi.com/search",
+            params={
+                "q": search_query,
+                "api_key": api_key,
+                "engine": "google",
+                "gl": country_suffix,
+                "hl": "en",
+                "num": 10
             },
-            json={"q": search_query, "gl": country_suffix, "hl": "en"},
             timeout=10,
         )
         response.raise_for_status()
         data = response.json()
 
-        organic = data.get("organic", [])
+        organic = data.get("organic_results", [])
         if not organic:
             print("⚠️  No results found.")
             return []
@@ -60,11 +64,12 @@ def find_specific_gov_links(query, country_suffix):
         links = []
 
         # Grab sitelinks from top result if available
-        top = organic[0]
-        for sl in top.get("sitelinks", []):
-            link = sl.get("link")
-            if link:
-                links.append(link)
+        if organic:
+            top = organic[0]
+            for sl in top.get("sitelinks", {}).get("inline", []):
+                link = sl.get("link")
+                if link:
+                    links.append(link)
 
         # Add main organic links
         for res in organic[:5]:

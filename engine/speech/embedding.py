@@ -62,7 +62,7 @@ def ingest_to_chroma(doc_id, text_chunks, source_urls=None, country=None):
         metadatas=metadatas
     )
 
-def query_from_chroma(question, top_k=5, min_similarity=0.4, country=None):
+def query_from_chroma(question, top_k=5, min_similarity=0.40, country=None, strict_mode=False):
     """
     Search for context directly from the ChromaDB storage.
     
@@ -70,15 +70,20 @@ def query_from_chroma(question, top_k=5, min_similarity=0.4, country=None):
         question: The query text
         top_k: Number of results to return
         min_similarity: Minimum similarity threshold (0-1). Chunks below this are filtered out.
-                       Lower distance = higher similarity. Default 0.4 = 40% similarity required.
+                       Lower distance = higher similarity. Default 0.40 = 40% similarity required.
         country: Optional country filter (e.g., "Malaysia", "Thailand"). If provided, only returns
                 chunks from that country. If None, returns chunks from all countries.
+        strict_mode: If True, uses higher threshold (50%) to prevent cross-topic contamination.
+                    If False, uses default threshold (40%) for freshly fetched data.
     
     Returns:
         tuple: (chunks, sources)
         - chunks: list of relevant text chunks (filtered by similarity and country)
         - sources: list of source URLs (or None if not available)
     """
+    # Apply strict mode threshold if enabled
+    if strict_mode:
+        min_similarity = max(min_similarity, 0.50)  # At least 50% in strict mode
     # 1. Get the collection from the manager
     collection = db_manager.get_collection()
     
@@ -113,25 +118,42 @@ def query_from_chroma(question, top_k=5, min_similarity=0.4, country=None):
     metadatas = results['metadatas'][0] if results.get('metadatas') else []
     distances = results['distances'][0] if results.get('distances') else []
     
-    # 6. Filter chunks by similarity threshold
+    # 6. Filter chunks by similarity threshold AND keyword relevance
     # ChromaDB returns L2 distance (lower is better)
     # For normalized embeddings: distance = 2 * (1 - cosine_similarity)
     # So: cosine_similarity = 1 - (distance / 2)
     # We want similarity >= min_similarity, which means distance <= 2 * (1 - min_similarity)
     max_distance = 2 * (1 - min_similarity)
     
+    # Extract key nouns from question for keyword matching
+    import re
+    question_lower = question.lower()
+    # Remove common words and extract potential keywords
+    stop_words = {'how', 'to', 'what', 'when', 'where', 'who', 'why', 'is', 'are', 'the', 'a', 'an', 'can', 'i', 'my', 'do', 'does'}
+    question_words = set(re.findall(r'\b\w+\b', question_lower))
+    keywords = question_words - stop_words
+    
     filtered_chunks = []
     filtered_metadatas = []
     
     for i, (chunk, distance) in enumerate(zip(chunks, distances)):
+        similarity = 1 - (distance / 2)
+        chunk_country = metadatas[i].get('country', 'Unknown') if i < len(metadatas) else 'Unknown'
+        
         if distance <= max_distance:
-            filtered_chunks.append(chunk)
-            if i < len(metadatas):
-                filtered_metadatas.append(metadatas[i])
-            chunk_country = metadatas[i].get('country', 'Unknown') if i < len(metadatas) else 'Unknown'
-            print(f"   ✓ Chunk {i+1}: distance={distance:.3f}, similarity={1 - (distance/2):.3f}, country={chunk_country}")
+            # Additional keyword check: at least one key term should appear in chunk
+            chunk_lower = chunk.lower()
+            keyword_match = any(keyword in chunk_lower for keyword in keywords) if keywords else True
+            
+            if keyword_match:
+                filtered_chunks.append(chunk)
+                if i < len(metadatas):
+                    filtered_metadatas.append(metadatas[i])
+                print(f"   ✓ Chunk {i+1}: distance={distance:.3f}, similarity={similarity:.3f}, country={chunk_country}")
+            else:
+                print(f"   ✗ Chunk {i+1}: distance={distance:.3f}, similarity={similarity:.3f} (no keyword match)")
         else:
-            print(f"   ✗ Chunk {i+1}: distance={distance:.3f}, similarity={1 - (distance/2):.3f} (below threshold)")
+            print(f"   ✗ Chunk {i+1}: distance={distance:.3f}, similarity={similarity:.3f} (below threshold)")
     
     # 7. Extract unique source URLs from filtered results
     sources = []

@@ -32,7 +32,7 @@ def generate_final_response(user_question, relevant_chunks, dialect):
     Generates a speech-optimized answer tailored to a specific Southeast Asian dialect.
     Model hierarchy: Gemini 3 Flash (primary with retries) → Gemini 3.1 Flash Lite (backup) → Ollama qwen2.5:7b
     """
-    # Try Gemini 3.1 Flash Lite first (primary model with retry logic)
+    # Try Gemini 3 Flash first (primary model with retry logic)
     max_retries = 3
     retry_delay = 2
     
@@ -100,7 +100,7 @@ def generate_final_response(user_question, relevant_chunks, dialect):
                 if attempt < max_retries - 1:
                     continue
     
-    # Try Gemini 3.0 Flash as backup
+    # Try Gemini 3.1 Flash Lite as backup
     print("   Trying Gemini 3.1 Flash Lite (backup model)...")
     try:
         model_backup = genai.GenerativeModel('gemini-3.1-flash-lite-preview')

@@ -304,11 +304,18 @@ class DocumentSummarizer:
         return True
 
     def extract_text_from_document(self, file_path):
-        """Extract text from document using Docling VLM pipeline"""
+        """Extract text from document using Docling VLM pipeline or Gemini Vision for images"""
         print(f"📄 Processing Document: {file_path}")
         
         try:
             file_ext = Path(file_path).suffix.lower()
+            
+            # Check if it's an image file - use Gemini Vision instead of Docling
+            image_extensions = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.webp']
+            if file_ext in image_extensions:
+                print(f"🖼️ Image detected: {file_ext}")
+                print("   Using Gemini Vision for image analysis (OCR + visual understanding)...")
+                return self._extract_text_from_image_with_vision(file_path)
             
             if file_ext != '.pdf':
                 print(f"⚠️  Docling works best with PDFs. File type: {file_ext}")
@@ -400,6 +407,83 @@ class DocumentSummarizer:
             
         except Exception as e:
             print(f"❌ Error during document processing: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _extract_text_from_image_with_vision(self, image_path):
+        """Extract text from image using Gemini Vision (OCR + visual understanding)"""
+        try:
+            from google import genai
+            from google.genai import types
+            from PIL import Image
+            
+            if not self.gemini_api_key:
+                print("⚠️  Gemini API key not configured")
+                print("   Cannot use Gemini Vision for image processing")
+                return None
+            
+            client = genai.Client(api_key=self.gemini_api_key)
+            
+            # Load image
+            img = Image.open(image_path)
+            print(f"   📐 Image size: {img.size[0]}x{img.size[1]} pixels")
+            
+            # Prompt for comprehensive text extraction
+            prompt = """Extract ALL text from this image in a structured format.
+
+INSTRUCTIONS:
+1. Extract every piece of text you can see, including:
+   - Main content and body text
+   - Headers, titles, and subtitles
+   - Labels, captions, and annotations
+   - Tables (preserve table structure using markdown format)
+   - Forms and fields
+   - Small text, footnotes, and fine print
+   - Any text in different languages
+
+2. Preserve the layout and structure:
+   - Use markdown headers (# ## ###) for titles
+   - Use markdown tables (| | |) for tabular data
+   - Use bullet points (•) for lists
+   - Maintain paragraph breaks
+
+3. If the image contains visual elements (photos, diagrams, charts):
+   - Briefly describe them in [brackets]
+   - Example: [Photo of a person signing a document]
+   - Example: [Bar chart showing sales data]
+
+4. Output ONLY the extracted text and descriptions. Do not add commentary or explanations.
+
+Extract all text now:"""
+            
+            # Generate response using Gemini Vision
+            response = client.models.generate_content(
+                model='gemini-3-flash-preview',
+                contents=[prompt, img],
+                config=types.GenerateContentConfig(
+                    temperature=0.1,  # Low temperature for accurate extraction
+                    top_p=0.95,
+                    max_output_tokens=4096,
+                )
+            )
+            
+            if response and response.text:
+                extracted_text = response.text.strip()
+                
+                # Show statistics
+                print(f"\n📊 Extraction Statistics:")
+                print(f"   • Characters: {len(extracted_text)}")
+                print(f"   • Words: {len(extracted_text.split())}")
+                print(f"✅ Image processed successfully with Gemini Vision\n")
+                
+                return extracted_text
+            else:
+                print("⚠️  Gemini Vision returned empty response")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error extracting text from image with Gemini Vision: {e}")
             import traceback
             traceback.print_exc()
             return None

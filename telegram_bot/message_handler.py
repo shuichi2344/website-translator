@@ -460,16 +460,15 @@ class TelegramMessageHandler:
     def _generate_simple_response(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
         Generate a simple, child-friendly response for Telegram bot
-        Model hierarchy: Gemini 3.0 Flash (primary with retries) → Gemini 3.1 Flash Lite (backup) → qwen2.5:7b (local fallback)
+        Model hierarchy: Gemini 3 Flash (primary with retries) → Gemini 3.1 Flash Lite (backup) → qwen2.5:7b (local fallback)
         """
-        # Try Gemini 3.0 Flash with retry logic (handles rate limits)
+        # Try Gemini 3 Flash with retry logic (handles rate limits)
         max_retries = 3
         retry_delay = 2  # seconds
         
         for attempt in range(max_retries):
             try:
-                from google import genai
-                from google.genai import types
+                import google.generativeai as genai_old
                 import time
                 
                 api_key = os.getenv('GEMINI_API_KEY')
@@ -478,12 +477,13 @@ class TelegramMessageHandler:
                     return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
                 
                 if attempt > 0:
-                    print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for Gemini 3.0 Flash...")
+                    print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for Gemini 3 Flash...")
                     time.sleep(retry_delay * attempt)  # Exponential backoff
                 else:
-                    print(f"✨ Using Gemini 3.0 Flash (primary) for response generation...")
+                    print(f"✨ Using Gemini 3 Flash (primary) for response generation...")
                 
-                client = genai.Client(api_key=api_key)
+                genai_old.configure(api_key=api_key)
+                model = genai_old.GenerativeModel('gemini-3-flash-preview')
                 
                 # Combine chunks into context
                 context = "\n---\n".join(relevant_chunks)
@@ -513,25 +513,17 @@ IMPORTANT - Write in simple, clear {dialect}:
 
 Answer (in simple, clear {dialect}):"""
                 
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash-exp',
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=0.4,
-                        top_p=0.95,
-                        max_output_tokens=2048,
-                    )
-                )
+                response = model.generate_content(prompt)
                 
                 if response and response.text:
                     # Clean up any markdown formatting
                     clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
-                    print(f"✅ Gemini 3.0 Flash response generated successfully")
+                    print(f"✅ Gemini 3 Flash response generated successfully")
                     return clean_text
                 
                 # If no response, try next attempt
                 if attempt < max_retries - 1:
-                    print("⚠️ Gemini 3.0 Flash returned empty response, retrying...")
+                    print("⚠️ Gemini 3 Flash returned empty response, retrying...")
                     continue
                     
             except Exception as e:
@@ -540,17 +532,17 @@ Answer (in simple, clear {dialect}):"""
                 # Check if it's a rate limit error
                 if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg or '429' in error_msg:
                     if attempt < max_retries - 1:
-                        print(f"⚠️ Gemini 3.0 Flash rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
+                        print(f"⚠️ Gemini 3 Flash rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
                         continue
                     else:
-                        print(f"⚠️ Gemini 3.0 Flash rate limit exceeded after {max_retries} attempts")
+                        print(f"⚠️ Gemini 3 Flash rate limit exceeded after {max_retries} attempts")
                 else:
-                    print(f"⚠️ Gemini 3.0 Flash error: {e}")
+                    print(f"⚠️ Gemini 3 Flash error: {e}")
                     if attempt < max_retries - 1:
                         print(f"   Retrying...")
                         continue
         
-        # All Gemini 3.0 Flash attempts failed, try Gemini 3.1 Flash Lite as backup
+        # All Gemini 3 Flash attempts failed, try Gemini 3.1 Flash Lite as backup
         print("   Trying Gemini 3.1 Flash Lite (backup model)...")
         gemini_lite_response = self._generate_response_with_gemini_lite(user_question, relevant_chunks, dialect)
         if gemini_lite_response:
@@ -573,7 +565,7 @@ Answer (in simple, clear {dialect}):"""
                 print("⚠️ Gemini API key not configured")
                 return ""
             
-            print(f"✨ Using Gemini 3.0 Flash (backup)...")
+            print(f"✨ Using Gemini 3.1 Flash Lite (backup)...")
             
             client = genai.Client(api_key=api_key)
             
@@ -606,7 +598,7 @@ IMPORTANT - Write in simple, clear {dialect}:
 Answer (in simple, clear {dialect}):"""
             
             response = client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model='gemini-3.1-flash-lite-preview',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.4,
@@ -614,6 +606,18 @@ Answer (in simple, clear {dialect}):"""
                     max_output_tokens=2048,
                 )
             )
+            
+            if response and response.text:
+                # Clean up any markdown formatting
+                clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
+                print(f"✅ Gemini 3.1 Flash Lite response generated successfully")
+                return clean_text
+            
+            return ""
+            
+        except Exception as e:
+            print(f"⚠️ Gemini 3.1 Flash Lite error: {e}")
+            return ""
             
             if response and response.text:
                 # Clean up any markdown formatting
@@ -747,6 +751,7 @@ Answer (in simple, clear English):"""
                     if not urls and len(message_text.strip()) > 3:
                         print(f"💬 Processing as follow-up question about uploaded {doc_info['file_type']}")
                         
+                        # Route based on file type
                         if doc_info['file_type'] == 'document':
                             return await self._process_document_qa(telegram_id, message_text, telegram_user)
                         elif doc_info['file_type'] == 'image':
@@ -858,10 +863,10 @@ Answer (in simple, clear English):"""
                 from engine.speech.embedding import query_from_chroma
                 
                 # Query ChromaDB with embedded question
-                # min_similarity=0.4 means we need at least 40% similarity
+                # strict_mode=True uses 50% threshold to prevent cross-topic contamination
                 # Filter by user's country to prevent wrong-country answers
                 user_country = user.get('country', self.default_country)
-                cached_chunks, cached_sources = query_from_chroma(message_text, top_k=10, min_similarity=0.4, country=user_country)
+                cached_chunks, cached_sources = query_from_chroma(message_text, top_k=10, min_similarity=0.40, country=user_country, strict_mode=True)
                 
                 # Use only top 3 chunks for accuracy
                 if cached_chunks and len(cached_chunks) >= 3:
@@ -917,9 +922,10 @@ Answer (in simple, clear English):"""
                         ingest_to_chroma(doc_id, all_chunks_with_map, source_urls=chunk_to_url_map, country=user_country)
                         print(f"✅ [Step D] Stored embeddings in Vector Database with ID: {doc_id} (country: {user_country})")
                         
-                        # Query for top chunks with 40% similarity threshold
+                        # Query for top chunks with 40% similarity threshold (lenient for fresh data)
+                        # strict_mode=False allows lower threshold since we trust the search results
                         print(f"\n🔍 [RAG Step 1-3] Re-querying Vector Database with new data...")
-                        relevant_chunks, sources = query_from_chroma(message_text, top_k=10, min_similarity=0.4, country=user_country)
+                        relevant_chunks, sources = query_from_chroma(message_text, top_k=10, min_similarity=0.40, country=user_country, strict_mode=False)
                         
                         # Use only top 3 chunks above 40% threshold for accuracy
                         if relevant_chunks and len(relevant_chunks) >= 3:
@@ -1109,7 +1115,7 @@ Answer (in simple, clear English):"""
     
     async def handle_document(self, document_file, telegram_user, caption: str = None) -> str:
         """
-        Handle document uploads (PDF, DOCX, etc.)
+        Handle document uploads (PDF, DOCX, etc.) using Docling
         Stores the document immediately and starts background extraction
         
         Args:
@@ -1129,12 +1135,12 @@ Answer (in simple, clear English):"""
             print(f"📄 Document from: {username} ({telegram_id})")
             print(f"📎 File: {file_name}")
             
-            # Check file extension
+            # Check file extension - Docling supports PDF, DOCX (not images - use Gemini Vision for those)
             ext = os.path.splitext(file_name)[1].lower()
             supported_exts = ['.pdf', '.docx', '.doc', '.txt']
             
             if ext not in supported_exts:
-                return f"⚠️ Sorry, I only support PDF, DOCX, DOC, and TXT files. Your file: {ext}"
+                return f"⚠️ Sorry, I only support PDF, DOCX, DOC, and TXT files. For images, send them as photos. Your file: {ext}"
             
             # Download document to temporary location
             temp_dir = tempfile.gettempdir()
@@ -1166,7 +1172,7 @@ Answer (in simple, clear English):"""
                 # No question yet - just acknowledge receipt
                 return (
                     f"✅ <b>Document received: {file_name}</b>\n\n"
-                    f"📄 Processing your document in the background...\n"
+                    f"📄 Processing with Docling (OCR + Table Recognition)...\n"
                     f"You can ask questions right away!\n\n"
                     f"<i>Examples:</i>\n"
                     f"• What is this document about?\n"
@@ -1183,8 +1189,8 @@ Answer (in simple, clear English):"""
     
     async def handle_photo(self, photo_file, telegram_user, caption: str = None) -> str:
         """
-        Handle photo uploads
-        Stores the image immediately and waits for user's question
+        Handle photo uploads using Gemini Vision
+        Stores the image immediately and uses Gemini Vision for analysis
         
         Args:
             photo_file: Telegram photo file object
@@ -1209,12 +1215,12 @@ Answer (in simple, clear English):"""
             await file_obj.download_to_drive(temp_path)
             print(f"✅ Photo downloaded: {temp_path}")
             
-            # Store photo info for this user (thread-safe)
+            # Store photo info for this user (thread-safe) - use 'image' type for Gemini Vision
             with self._user_docs_lock:
                 self.user_documents[telegram_id] = {
                     'file_path': temp_path,
                     'file_name': 'photo.jpg',
-                    'file_type': 'image',
+                    'file_type': 'image',  # Use Gemini Vision for images
                     'timestamp': time.time()
                 }
             
@@ -1223,15 +1229,14 @@ Answer (in simple, clear English):"""
                 print(f"❓ Question with photo: {caption}")
                 return await self._process_image_analysis(telegram_id, caption, telegram_user)
             else:
-                # No question yet - just acknowledge receipt and wait for user's question
+                # No question yet - just acknowledge receipt
                 return (
                     f"✅ <b>Image received!</b>\n\n"
-                    f"🖼️ I've saved your image. Now you can ask me questions about it!\n\n"
+                    f"🖼️ I can see your image. Now you can ask me questions about it!\n\n"
                     f"<i>Examples:</i>\n"
                     f"• What is in this image?\n"
                     f"• Describe what you see\n"
                     f"• Can you read the text?\n"
-                    f"• Is this document valid?\n"
                     f"• Translate the text in the image\n\n"
                     f"💡 Your image will be available for the next 30 minutes."
                 )
@@ -1284,7 +1289,7 @@ Answer (in simple, clear English):"""
             return "Sorry, I encountered an error while summarizing the document."
     
     async def _process_document_qa(self, user_id: str, question: str, telegram_user) -> str:
-        """Answer a question about a document (optimized with background extraction)"""
+        """Answer a question about a document using Docling + RAG (optimized with background extraction)"""
         try:
             # Thread-safe access to document info
             with self._user_docs_lock:
@@ -1320,7 +1325,7 @@ Answer (in simple, clear English):"""
                 
                 # If still no text, extract now (blocking)
                 if not extracted_text:
-                    print(f"📄 Extracting text now (not ready from background)...")
+                    print(f"📄 Extracting text with Docling now (not ready from background)...")
                     loop = asyncio.get_event_loop()
                     extracted_text = await loop.run_in_executor(
                         self.executor,
@@ -1349,19 +1354,12 @@ Answer (in simple, clear English):"""
                 source_path=file_path
             )
             
-            if result and result.get('answer'):
+            if result and result.get('summary'):
                 response = (
                     f"📄 <b>Answer from {file_name}</b>\n\n"
                     f"❓ <i>{question}</i>\n\n"
-                    f"{result['answer']}"
+                    f"{result['summary']}"
                 )
-                
-                # Add relevant sections if available
-                if result.get('sources'):
-                    response += "\n\n📚 <b>Relevant sections:</b>"
-                    for i, source in enumerate(result['sources'][:3], 1):
-                        source_preview = source[:150] + "..." if len(source) > 150 else source
-                        response += f"\n{i}. {source_preview}"
                 
                 return response
             else:
@@ -1386,6 +1384,33 @@ Answer (in simple, clear English):"""
             print(f"🔍 Analyzing image with Gemini Vision")
             print(f"❓ Question: {question}")
             
+            # Get user language preference
+            user = self.get_or_create_user(telegram_user)
+            user_language = user.get('language', 'en')
+            
+            # Map language code to full language name
+            lang_code_to_name = {
+                'en': 'English',
+                'ms': 'Bahasa Melayu',
+                'id': 'Bahasa Indonesia',
+                'vi': 'Vietnamese',
+                'th': 'Thai',
+                'zh': 'Chinese (Simplified)',
+                'ta': 'Tamil',
+                'tl': 'Filipino/Tagalog',
+                'my': 'Burmese',
+                'km': 'Khmer',
+                'lo': 'Lao'
+            }
+            
+            # Get full language name (handle both code and full name)
+            if user_language in lang_code_to_name:
+                language_name = lang_code_to_name[user_language]
+            else:
+                language_name = user_language  # Already full name
+            
+            print(f"🗣️ Response will be in: {language_name}")
+            
             # Use new Google GenAI library (same as document summarizer)
             from google import genai
             from google.genai import types
@@ -1401,19 +1426,20 @@ Answer (in simple, clear English):"""
             # Load image
             img = Image.open(file_path)
             
-            # Use the same prompt style as document summarizer
+            # Use the same prompt style as document summarizer with language instruction
             prompt = f"""{question}
 
 IMPORTANT - Write like you're explaining to a 10-year-old child:
-- YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
+- LANGUAGE: Respond ENTIRELY in {language_name}. Do not mix languages.
+- YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in {language_name}.
 - Use everyday words that kids understand (avoid technical jargon)
 - Explain what things DO, not what they're called
 - If you must use a technical term, explain it in simple words right after
 - Focus on the MAIN IDEAS only - skip minor details
-- Start each line with just a bullet symbol: •
 - Do NOT include titles, headers, or bold text (**) 
 - Do NOT write intro text like "Here are the bullet points"
-"""
+
+Answer in {language_name}:"""
             
             # Generate response using new API
             response = client.models.generate_content(
@@ -1443,6 +1469,8 @@ IMPORTANT - Write like you're explaining to a 10-year-old child:
         except Exception as e:
             print(f"❌ Error analyzing image: {e}")
             import traceback
+            traceback.print_exc()
+            return "Sorry, I encountered an error while analyzing the image."
             traceback.print_exc()
             return "Sorry, I encountered an error while analyzing the image. Make sure Gemini API is configured."
 
