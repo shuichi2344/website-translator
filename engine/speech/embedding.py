@@ -1,10 +1,11 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from huggingface_hub import login
 from sentence_transformers import SentenceTransformer
 from engine.speech.chroma_config import ChromaDBConfig
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=True)
 hf_token = os.getenv("HF_TOKEN")
 
 if hf_token: # Authenticate with Hugging Face

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 # Try the modern import first
 try:
@@ -6,7 +7,7 @@ try:
 except ImportError:
     from firecrawl import FirecrawlApp
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=True)
 
 # Initialize with your key
 app = FirecrawlApp(api_key=os.getenv("FIRECRAWL_API_KEY"))

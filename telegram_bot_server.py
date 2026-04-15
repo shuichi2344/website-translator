@@ -12,9 +12,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from telegram.constants import ParseMode
 from telegram_bot.message_handler import get_message_handler
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[0] / ".env", override=True)
 
 # Initialize message handler (singleton - thread-safe)
 message_handler = get_message_handler()

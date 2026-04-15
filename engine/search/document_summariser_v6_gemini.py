@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from engine.gpu_accelerator import load_sentence_transformer, get_optimal_batch_size, is_gpu_available
 
 warnings.filterwarnings('ignore')
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=True)
 
 
 class DocumentSummarizer:

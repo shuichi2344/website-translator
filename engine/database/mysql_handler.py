@@ -8,9 +8,10 @@ import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=True)
 
 
 class MySQLHandler:
