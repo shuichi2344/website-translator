@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=True)
 
-# Configure your API Key (Add GOOGLE_API_KEY to your .env file)
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+# Configure your API Key (Add GEMINI_API_KEY to your .env file)
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # Language to dialect mapping
 LANGUAGE_DIALECT_MAP = {

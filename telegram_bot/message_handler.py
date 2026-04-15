@@ -12,6 +12,12 @@ import asyncio
 from typing import Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=True)
+
 from engine.database.mysql_handler import MySQLHandler
 from engine.database.rag_integration import RAGIntegration
 from engine.speech.response_gen import generate_final_response, get_dialect_from_language
@@ -454,9 +460,9 @@ class TelegramMessageHandler:
     def _generate_simple_response(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
         Generate a simple, child-friendly response for Telegram bot
-        Model hierarchy: Gemini 3.1 Flash Lite (primary with retries) → Gemini 3.0 Flash (backup) → qwen2.5:7b (local fallback)
+        Model hierarchy: Gemini 3.0 Flash (primary with retries) → Gemini 3.1 Flash Lite (backup) → qwen2.5:7b (local fallback)
         """
-        # Try Gemini 3.1 Flash Lite with retry logic (handles rate limits)
+        # Try Gemini 3.0 Flash with retry logic (handles rate limits)
         max_retries = 3
         retry_delay = 2  # seconds
         
@@ -472,10 +478,10 @@ class TelegramMessageHandler:
                     return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
                 
                 if attempt > 0:
-                    print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for Gemini 3.1 Flash Lite...")
+                    print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for Gemini 3.0 Flash...")
                     time.sleep(retry_delay * attempt)  # Exponential backoff
                 else:
-                    print(f"✨ Using Gemini 3.1 Flash Lite (primary) for response generation...")
+                    print(f"✨ Using Gemini 3.0 Flash (primary) for response generation...")
                 
                 client = genai.Client(api_key=api_key)
                 
@@ -508,7 +514,7 @@ IMPORTANT - Write in simple, clear {dialect}:
 Answer (in simple, clear {dialect}):"""
                 
                 response = client.models.generate_content(
-                    model='gemini-3.1-flash-lite-preview',
+                    model='gemini-2.0-flash-exp',
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0.4,
@@ -520,12 +526,12 @@ Answer (in simple, clear {dialect}):"""
                 if response and response.text:
                     # Clean up any markdown formatting
                     clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
-                    print(f"✅ Gemini 3.1 Flash Lite response generated successfully")
+                    print(f"✅ Gemini 3.0 Flash response generated successfully")
                     return clean_text
                 
                 # If no response, try next attempt
                 if attempt < max_retries - 1:
-                    print("⚠️ Gemini 3.1 Flash Lite returned empty response, retrying...")
+                    print("⚠️ Gemini 3.0 Flash returned empty response, retrying...")
                     continue
                     
             except Exception as e:
@@ -534,29 +540,29 @@ Answer (in simple, clear {dialect}):"""
                 # Check if it's a rate limit error
                 if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg or '429' in error_msg:
                     if attempt < max_retries - 1:
-                        print(f"⚠️ Gemini 3.1 Flash Lite rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
+                        print(f"⚠️ Gemini 3.0 Flash rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
                         continue
                     else:
-                        print(f"⚠️ Gemini 3.1 Flash Lite rate limit exceeded after {max_retries} attempts")
+                        print(f"⚠️ Gemini 3.0 Flash rate limit exceeded after {max_retries} attempts")
                 else:
-                    print(f"⚠️ Gemini 3.1 Flash Lite error: {e}")
+                    print(f"⚠️ Gemini 3.0 Flash error: {e}")
                     if attempt < max_retries - 1:
                         print(f"   Retrying...")
                         continue
         
-        # All Gemini 3.1 Flash Lite attempts failed, try Gemini 3.0 Flash as backup
-        print("   Trying Gemini 3.0 Flash (backup model)...")
-        gemini_backup_response = self._generate_response_with_gemini_3_flash(user_question, relevant_chunks, dialect)
-        if gemini_backup_response:
-            return gemini_backup_response
+        # All Gemini 3.0 Flash attempts failed, try Gemini 3.1 Flash Lite as backup
+        print("   Trying Gemini 3.1 Flash Lite (backup model)...")
+        gemini_lite_response = self._generate_response_with_gemini_lite(user_question, relevant_chunks, dialect)
+        if gemini_lite_response:
+            return gemini_lite_response
         
         # All Gemini models failed, use Ollama fallback
         print("   Falling back to qwen2.5:7b (local model)...")
         return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
     
-    def _generate_response_with_gemini_3_flash(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
+    def _generate_response_with_gemini_lite(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
-        Backup response generation using Gemini 3.0 Flash
+        Backup response generation using Gemini 3.1 Flash Lite
         """
         try:
             from google import genai
