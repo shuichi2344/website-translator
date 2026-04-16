@@ -73,7 +73,7 @@ def query_from_chroma(question, top_k=5, min_similarity=0.40, country=None, stri
                        Lower distance = higher similarity. Default 0.40 = 40% similarity required.
         country: Optional country filter (e.g., "Malaysia", "Thailand"). If provided, only returns
                 chunks from that country. If None, returns chunks from all countries.
-        strict_mode: If True, uses higher threshold (50%) to prevent cross-topic contamination.
+        strict_mode: If True, uses higher threshold (40%) to prevent cross-topic contamination.
                     If False, uses default threshold (40%) for freshly fetched data.
     
     Returns:
@@ -81,9 +81,9 @@ def query_from_chroma(question, top_k=5, min_similarity=0.40, country=None, stri
         - chunks: list of relevant text chunks (filtered by similarity and country)
         - sources: list of source URLs (or None if not available)
     """
-    # Apply strict mode threshold if enabled
+    # Apply strict mode threshold if enabled (now also 40%)
     if strict_mode:
-        min_similarity = max(min_similarity, 0.50)  # At least 50% in strict mode
+        min_similarity = max(min_similarity, 0.40)  # At least 40% in strict mode
     # 1. Get the collection from the manager
     collection = db_manager.get_collection()
     

@@ -20,16 +20,16 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[0] / ".env", override=T
 # Initialize message handler (singleton - thread-safe)
 message_handler = get_message_handler()
 
-# ASEAN Countries
+# ASEAN Countries (matches Flet app)
 COUNTRIES = [
-    "Malaysia", "Singapore", "Indonesia", "Thailand", "Vietnam",
-    "Philippines", "Myanmar", "Cambodia", "Laos", "Brunei"
+    "Malaysia", "Indonesia", "Thailand", "Vietnam", "Philippines",
+    "Myanmar", "Cambodia", "Laos", "Singapore", "Brunei", "Timor-Leste"
 ]
 
-# Supported Languages
+# Supported Languages (matches Flet app)
 LANGUAGES = [
-    "English", "Bahasa Melayu", "Bahasa Indonesia", "Thai",
-    "Vietnamese", "Filipino/Tagalog", "Burmese", "Khmer", "Lao"
+    "English", "Bahasa Melayu", "Bahasa Indonesia", "Thai", "Vietnamese",
+    "Filipino/Tagalog", "Burmese", "Khmer", "Lao", "Chinese (Simplified)", "Tamil"
 ]
 
 # Store user preferences temporarily (in production, use database)
@@ -251,7 +251,7 @@ async def help_command(update: Update, context):
         "4. Include reference links\n\n"
         "<b>Supported languages:</b>\n"
         "English, Bahasa Melayu, Bahasa Indonesia, Thai, Vietnamese, "
-        "Filipino, and more!\n\n"
+        "Filipino/Tagalog, Burmese, Khmer, Lao, Chinese (Simplified), Tamil\n\n"
         "<b>Example questions:</b>\n"
         "• How to renew my passport?\n"
         "• What documents do I need for a visa?\n"

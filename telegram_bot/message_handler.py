@@ -54,6 +54,11 @@ class TelegramMessageHandler:
             "Thai": ["สวัสดี", "ขอบคุณ", "อะไร", "ที่ไหน"],
             "Vietnamese": ["xin chào", "cảm ơn", "gì", "ở đâu"],
             "Filipino/Tagalog": ["salamat", "ano", "saan", "paano"],
+            "Chinese (Simplified)": ["你好", "谢谢", "什么", "哪里"],
+            "Tamil": ["வணக்கம்", "நன்றி", "என்ன", "எங்கே"],
+            "Burmese": ["မင်္ဂလာပါ", "ကျေးဇူးတင်ပါတယ်"],
+            "Khmer": ["សួស្តី", "អរគុណ"],
+            "Lao": ["ສະບາຍດີ", "ຂອບໃຈ"]
         }
     
     def extract_user_id(self, telegram_user) -> str:
@@ -348,7 +353,9 @@ class TelegramMessageHandler:
                 "Filipino/Tagalog": "tl",
                 "Burmese": "my",
                 "Khmer": "km",
-                "Lao": "lo"
+                "Lao": "lo",
+                "Chinese (Simplified)": "zh-CN",
+                "Tamil": "ta"
             }
             lang_code = lang_map.get(language, "en")
             
@@ -521,7 +528,7 @@ IMPORTANT - Write in simple, clear {dialect}:
 - Explain what things DO, not what they're called
 - If you must use a technical term, explain it in simple words right after
 - Focus on the MAIN IDEAS only - skip minor details
-- You can use bullet points (•) for lists
+- Use bullet points and numbering for better readbility
 - Do NOT include titles, headers, or bold text (**)
 - Do NOT write intro text like "Here are the bullet points"
 - LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
@@ -616,7 +623,7 @@ IMPORTANT - Write in simple, clear {dialect}:
 - Explain what things DO, not what they're called
 - If you must use a technical term, explain it in simple words right after
 - Focus on the MAIN IDEAS only - skip minor details
-- You can use bullet points (•) for lists
+- Use bullet points and numbering for better readbility
 - Do NOT include titles, headers, or bold text (**)
 - DO NOT write intro text like "Here are the bullet points"
 - LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
@@ -891,7 +898,7 @@ Answer (in simple, clear English):"""
                 from engine.speech.embedding import query_from_chroma
                 
                 # Query ChromaDB with embedded question (run in executor for concurrency)
-                # strict_mode=True uses 50% threshold to prevent cross-topic contamination
+                # strict_mode=True uses 40% threshold to prevent cross-topic contamination
                 # Filter by user's country to prevent wrong-country answers
                 user_country = user.get('country', self.default_country)
                 
@@ -1097,7 +1104,9 @@ Answer (in simple, clear English):"""
                 "Filipino/Tagalog": "tl",
                 "Burmese": "my",
                 "Khmer": "km",
-                "Lao": "lo"
+                "Lao": "lo",
+                "Chinese (Simplified)": "zh-CN",
+                "Tamil": "ta"
             }
             lang_code = lang_map.get(language, "en")
             
