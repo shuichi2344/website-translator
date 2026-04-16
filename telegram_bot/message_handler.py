@@ -429,6 +429,7 @@ class TelegramMessageHandler:
     def fetch_government_data(self, query: str, country: str = None) -> dict:
         """
         Fetch fresh government data for a query (same as WhatsApp bot)
+        SYNCHRONOUS - Use fetch_government_data_async for async contexts
         
         Args:
             query: User's question
@@ -462,10 +463,21 @@ class TelegramMessageHandler:
             print(f"❌ Error fetching government data: {e}")
             return {"chunks": [], "sources": []}
     
+    async def fetch_government_data_async(self, query: str, country: str = None) -> dict:
+        """Async wrapper for fetch_government_data to enable concurrent processing"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor,
+            self.fetch_government_data,
+            query,
+            country
+        )
+    
     def _generate_simple_response(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
         Generate a simple, child-friendly response for Telegram bot
         Model hierarchy: Gemini 3 Flash (primary with retries) → Gemini 3.1 Flash Lite (backup) → qwen2.5:7b (local fallback)
+        SYNCHRONOUS - Use _generate_simple_response_async for async contexts
         """
         # Try Gemini 3 Flash with retry logic (handles rate limits)
         max_retries = 3
@@ -556,6 +568,17 @@ Answer (in simple, clear {dialect}):"""
         # All Gemini models failed, use Ollama fallback
         print("   Falling back to qwen2.5:7b (local model)...")
         return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
+    
+    async def _generate_simple_response_async(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
+        """Async wrapper for _generate_simple_response to enable concurrent processing"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor,
+            self._generate_simple_response,
+            user_question,
+            relevant_chunks,
+            dialect
+        )
     
     def _generate_response_with_gemini_lite(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
@@ -791,11 +814,11 @@ Answer (in simple, clear English):"""
                 # If there's a question along with the URL, do Q&A
                 if question_text and len(question_text) > 3:
                     print(f"❓ Question detected: {question_text}")
-                    return self._handle_url_qa(urls, question_text, user_language)
+                    return await self._handle_url_qa(urls, question_text, user_language)
                 else:
                     # No question, just summarize the URLs
                     print(f"📄 No question detected, summarizing URLs")
-                    return self._handle_url_summary(urls, user_language)
+                    return await self._handle_url_summary(urls, user_language)
             
             # Regular message handling (no URLs)
             # Get or create user
@@ -867,11 +890,21 @@ Answer (in simple, clear English):"""
             try:
                 from engine.speech.embedding import query_from_chroma
                 
-                # Query ChromaDB with embedded question
+                # Query ChromaDB with embedded question (run in executor for concurrency)
                 # strict_mode=True uses 50% threshold to prevent cross-topic contamination
                 # Filter by user's country to prevent wrong-country answers
                 user_country = user.get('country', self.default_country)
-                cached_chunks, cached_sources = query_from_chroma(message_text, top_k=10, min_similarity=0.40, country=user_country, strict_mode=True)
+                
+                loop = asyncio.get_event_loop()
+                cached_chunks, cached_sources = await loop.run_in_executor(
+                    self.executor,
+                    query_from_chroma,
+                    message_text,
+                    10,  # top_k
+                    0.40,  # min_similarity
+                    user_country,
+                    True  # strict_mode
+                )
                 
                 # Use only top 3 chunks for accuracy
                 if cached_chunks and len(cached_chunks) >= 3:
@@ -902,7 +935,7 @@ Answer (in simple, clear English):"""
                 
                 # Step A: Raw Data Sources
                 print(f"[Step A] Searching for government sources...")
-                gov_data = self.fetch_government_data(message_text, self.default_country)
+                gov_data = await self.fetch_government_data_async(message_text, self.default_country)
                 all_chunks = gov_data["chunks"]
                 source_links = gov_data["sources"]
                 
@@ -916,7 +949,12 @@ Answer (in simple, clear English):"""
                     from engine.speech.web_scraping import get_chunks_from_list
                     # Re-scrape to get proper mapping (this is a workaround)
                     # TODO: Update fetch_government_data to return chunk_to_url_map
-                    all_chunks_with_map, chunk_to_url_map = get_chunks_from_list(source_links)
+                    loop = asyncio.get_event_loop()
+                    all_chunks_with_map, chunk_to_url_map = await loop.run_in_executor(
+                        self.executor,
+                        get_chunks_from_list,
+                        source_links
+                    )
                     
                     # Step D: Embedding → Store in Vector Database
                     try:
@@ -924,13 +962,31 @@ Answer (in simple, clear English):"""
                         from datetime import datetime
                         doc_id = f"telegram_gov_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                         user_country = user.get('country', self.default_country)
-                        ingest_to_chroma(doc_id, all_chunks_with_map, source_urls=chunk_to_url_map, country=user_country)
+                        
+                        # Run ingest in executor for concurrency
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(
+                            self.executor,
+                            ingest_to_chroma,
+                            doc_id,
+                            all_chunks_with_map,
+                            chunk_to_url_map,
+                            user_country
+                        )
                         print(f"✅ [Step D] Stored embeddings in Vector Database with ID: {doc_id} (country: {user_country})")
                         
                         # Query for top chunks with 40% similarity threshold (lenient for fresh data)
                         # strict_mode=False allows lower threshold since we trust the search results
                         print(f"\n🔍 [RAG Step 1-3] Re-querying Vector Database with new data...")
-                        relevant_chunks, sources = query_from_chroma(message_text, top_k=10, min_similarity=0.40, country=user_country, strict_mode=False)
+                        relevant_chunks, sources = await loop.run_in_executor(
+                            self.executor,
+                            query_from_chroma,
+                            message_text,
+                            10,  # top_k
+                            0.40,  # min_similarity
+                            user_country,
+                            False  # strict_mode
+                        )
                         
                         # Use only top 3 chunks above 40% threshold for accuracy
                         if relevant_chunks and len(relevant_chunks) >= 3:
@@ -961,8 +1017,8 @@ Answer (in simple, clear English):"""
                         "Please try rephrasing or ask about common topics like passport renewal, visa applications, or government services."
                     ]
             
-            # Generate response using simple, child-friendly style
-            response = self._generate_simple_response(
+            # Generate response using simple, child-friendly style (async for concurrency)
+            response = await self._generate_simple_response_async(
                 user_question=message_text,
                 relevant_chunks=relevant_chunks,
                 dialect=dialect
@@ -986,12 +1042,28 @@ Answer (in simple, clear English):"""
             traceback.print_exc()
             return "Sorry, I encountered an error. Please try again later."
     
-    def _handle_url_summary(self, urls: list, language: str) -> str:
+    async def summarize_url_async(self, url: str, language: str = "English") -> Dict[str, Any]:
+        """Async wrapper for URL summarization to enable concurrent processing"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.executor,
+            self.summarize_url,
+            url,
+            language
+        )
+    
+    async def _handle_url_summary(self, urls: list, language: str) -> str:
         """Handle URL-only messages (no question) - summarize the URLs"""
         summaries = []
-        for url in urls[:3]:  # Limit to 3 URLs
-            result = self.summarize_url(url, language)
-            if result['success']:
+        
+        # Process URLs concurrently
+        tasks = [self.summarize_url_async(url, language) for url in urls[:3]]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for url, result in zip(urls[:3], results):
+            if isinstance(result, Exception):
+                summaries.append(f"⚠️ Could not summarize {url}: {str(result)}")
+            elif result['success']:
                 reduction = 0
                 if result['word_count'] > 0:
                     reduction = int(100 - (result['summary_word_count'] / result['word_count'] * 100))
@@ -1010,7 +1082,7 @@ Answer (in simple, clear English):"""
         else:
             return "Sorry, I couldn't summarize any of the URLs you provided."
     
-    def _handle_url_qa(self, urls: list, question: str, language: str) -> str:
+    async def _handle_url_qa(self, urls: list, question: str, language: str) -> str:
         """Handle URL + question messages - answer question based on URL content"""
         try:
             print(f"💬 Answering question based on URL content")
@@ -1030,12 +1102,20 @@ Answer (in simple, clear English):"""
             lang_code = lang_map.get(language, "en")
             
             answers = []
-            for url in urls[:3]:  # Limit to 3 URLs
+            
+            # Process URLs concurrently
+            async def process_url_qa(url):
                 print(f"🔍 Processing Q&A for: {url}")
                 
-                # Use DocumentSummarizer's RAG Q&A function
-                summarizer = DocumentSummarizer(target_lang=lang_code)
-                result = summarizer.rag_qa_website(url, question)
+                # Use DocumentSummarizer's RAG Q&A function (run in executor)
+                loop = asyncio.get_event_loop()
+                from engine.search.document_summariser_v6_gemini import DocumentSummarizer
+                
+                def run_qa():
+                    summarizer = DocumentSummarizer(target_lang=lang_code)
+                    return summarizer.rag_qa_website(url, question)
+                
+                result = await loop.run_in_executor(self.executor, run_qa)
                 
                 if result and result.get('answer'):
                     answer_text = (
@@ -1052,12 +1132,24 @@ Answer (in simple, clear English):"""
                             source_preview = source[:150] + "..." if len(source) > 150 else source
                             answer_text += f"\n{i}. {source_preview}"
                     
-                    answers.append(answer_text)
+                    return answer_text
                 else:
-                    answers.append(f"⚠️ Could not answer question based on {url}")
+                    return f"⚠️ Could not answer question based on {url}"
             
-            if answers:
-                return "\n\n" + "─" * 30 + "\n\n".join(answers)
+            # Process all URLs concurrently
+            tasks = [process_url_qa(url) for url in urls[:3]]
+            answers = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Filter out exceptions
+            valid_answers = []
+            for answer in answers:
+                if isinstance(answer, Exception):
+                    valid_answers.append(f"⚠️ Error processing URL: {str(answer)}")
+                else:
+                    valid_answers.append(answer)
+            
+            if valid_answers:
+                return "\n\n" + "─" * 30 + "\n\n".join(valid_answers)
             else:
                 return f"Sorry, I couldn't find an answer to your question in the provided URLs."
                 
