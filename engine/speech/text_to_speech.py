@@ -66,21 +66,24 @@ def get_lang(text):
         print(f"Detection Error: {e}")
         return "en"
 
-async def speak_answer(text: str, country_code: str = "DEFAULT"):
+async def speak_answer(text: str, country_code: str = "DEFAULT", lang_override: str = None):
     """
     Plays the AI's answer using a voice tailored to the user's country.
     Prepends a brief country-aware greeting when a known country is provided.
     """
     lang = "en"
 
-    try:
-        detected = get_lang(text)
-        if detected:
-            lang = detected
-    except Exception as e:
-        print(f"Detection Error: {e}. Falling back to 'en'.")
+    if lang_override:
+        lang = lang_override
+    else:
+        try:
+            detected = get_lang(text)
+            if detected:
+                lang = detected
+        except Exception as e:
+            print(f"Detection Error: {e}. Falling back to 'en'.")
 
-    print(f"Detected language: {lang}, country: {country_code}")
+    print(f"Language: {lang}, country: {country_code}")
 
     # Country-aware greeting prefix
     _GREETINGS = {
@@ -96,11 +99,7 @@ async def speak_answer(text: str, country_code: str = "DEFAULT"):
         "BN": {"ms": "Helo! ", "en": "Hello! "},
         "TL": {"pt": "Olá! ", "en": "Hello! "},
     }
-    greeting = ""
-    if country_code.upper() in _GREETINGS:
-        country_greetings = _GREETINGS[country_code.upper()]
-        greeting = country_greetings.get(lang, country_greetings.get("en", ""))
-    full_text = greeting + text
+    full_text = text
 
     # Select voice based on country code, fallback to default
     country_voices = VOICE_MATRIX.get(country_code.upper(), VOICE_MATRIX["DEFAULT"])

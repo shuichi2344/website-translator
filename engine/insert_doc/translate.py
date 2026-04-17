@@ -52,10 +52,12 @@ def translate(sentence: str, language: str) -> str:
 
     # Patterns that indicate leaked meta-commentary from the model
     _LEAK_PATTERNS = [
+        r'\s*translated[:\s].*',
+        r'\s*translation[:\s].*',
         r'\bdalam bahasa\b.*',
         r'\bin\s+\w+\s+language\b.*',
         r'\bin\s+(?:english|malay|thai|vietnamese|tagalog|indonesian|chinese|tamil)\b.*',
-        r'\btranslation\b.*',
+        r'[:\s]+(?:bahasa melayu|bahasa indonesia|malay|english|thai|vietnamese|tagalog|filipino|chinese|tamil|burmese|khmer|lao)\s*$',
         r'\bask\w*\s+directly\b.*',
         r'\bbertanya\s+secara\s+langsung\b.*',
         r'\bsecara\s+langsung\b.*',
@@ -67,7 +69,8 @@ def translate(sentence: str, language: str) -> str:
             prompt,
             max_tokens=80,
             temperature=0.1,
-            stop=["\n", "<|im_end|>", "Question:", "Translation:", "Note:"],
+            stop=["\n", "<|im_end|>", "Question:", "Translation:", "Note:", "translated:", "Translated:",
+                  " bahasa", " Bahasa", " malay", " Malay", " english", " English"],
         )
         result = output["choices"][0]["text"].strip()
 

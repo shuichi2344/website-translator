@@ -349,7 +349,23 @@ class InclusiveCitizenAI:
 
     # ------------------------------------------------------------------
     def confirm_section(self, user_answer: str) -> bool:
-        yes = any(w in user_answer.lower() for w in ("yes", "ya", "ada", "y", "ok", "sure", "have"))
+        _YES_WORDS = {
+            # English
+            "yes", "yep", "yeah", "yup", "sure", "ok", "okay", "correct", "confirm", "have",
+            # Malay / Indonesian
+            "ya", "ada", "betul", "boleh", "setuju", "iya", "oke", "benar",
+            # Thai (romanised)
+            "chai", "krub", "kha",
+            # Vietnamese
+            "vâng", "có", "đúng",
+            # Filipino / Tagalog
+            "oo", "opo", "sige",
+            # Chinese
+            "是", "好", "对", "可以",
+            # Tamil
+            "ஆம்", "சரி",
+        }
+        yes = any(w in user_answer.lower() for w in _YES_WORDS)
         if not yes:
             self._skipped_sections.add(self._current_section)
         return yes

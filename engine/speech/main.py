@@ -25,8 +25,27 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
         country: User's selected country (for government sources)
         language: User's selected language (for response)
     """
-    # Use user's language preference instead of detected dialect
-    target_dialect = get_dialect_from_language(language)
+    # Detect language from the actual user input — overrides profile setting.
+    # Uses fast_langdetect only (no keyword spotting for English — too many false positives).
+    detected_language = language  # fallback to profile setting
+    _input_text = (question or "").strip()
+    if _input_text:
+        try:
+            from fast_langdetect import detect as _fld
+            _res = _fld(_input_text)
+            _iso = (_res[0].get("lang") if isinstance(_res, list) else _res.get("lang", "en")).lower()
+            _ISO_MAP = {
+                "ms": "Bahasa Melayu", "id": "Bahasa Indonesia", "th": "Thai",
+                "vi": "Vietnamese", "tl": "Filipino/Tagalog", "fil": "Filipino/Tagalog",
+                "zh": "Chinese (Simplified)", "ta": "Tamil", "my": "Burmese",
+                "km": "Khmer", "lo": "Lao", "en": "English",
+            }
+            detected_language = _ISO_MAP.get(_iso, language)
+            print(f"[main] Detected language: {_iso} -> {detected_language}")
+        except Exception as _e:
+            print(f"[main] Language detection failed: {_e}")
+
+    target_dialect = get_dialect_from_language(detected_language)
     country_suffix = get_country_suffix(country)
 
     print("-" * 30)
@@ -34,7 +53,7 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
         print("Question:", question)
     if dialect:
         print("Detected Dialect:", dialect)
-    print("Target Language:", language)
+    print("Target Language:", detected_language)
     print("Target Country:", country)
     if query:
         print("Normalized query:", query)

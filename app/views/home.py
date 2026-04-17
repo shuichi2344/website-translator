@@ -191,9 +191,26 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     # ------------------------------------------------------------------ #
 
     ASEAN_LANGUAGES = [
-        "English", "Malay", "Indonesian", "Thai", "Vietnamese",
-        "Filipino", "Burmese", "Khmer", "Lao", "Tamil", "Chinese (Simplified)",
+        "English", "Bahasa Melayu", "Bahasa Indonesia", "Thai", "Vietnamese",
+        "Filipino/Tagalog", "Burmese", "Khmer", "Lao", "Tamil", "Chinese (Simplified)",
     ]
+
+    _IV_YES_WORDS = (
+        # English
+        "yes", "yep", "yeah", "yup", "sure", "ok", "okay", "correct", "confirm",
+        # Malay / Indonesian
+        "ya", "ada", "betul", "boleh", "setuju", "iya", "oke", "benar",
+        # Thai (romanised)
+        "chai", "krub", "kha",
+        # Vietnamese
+        "vâng", "có", "đúng",
+        # Filipino / Tagalog
+        "oo", "opo", "sige",
+        # Chinese
+        "是", "好", "对", "可以",
+        # Tamil
+        "ஆம்", "சரி",
+    )
 
     doc_lang_dropdown = ft.Dropdown(
         label="Target Language",
@@ -456,6 +473,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
+            tight=True,
         ),
         visible=False,
         padding=ft.padding.symmetric(horizontal=16, vertical=8),
@@ -735,10 +753,17 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         # Reuse the same interview card UI used for scanned PDFs
         _run_in_thread(lambda: _ui_call(lambda: _open_interview_for_entry(form)))
 
+    # Full ASEAN country list for the form country picker
+    _ASEAN_COUNTRIES = [
+        "Brunei", "Cambodia", "Indonesia", "Laos", "Malaysia",
+        "Myanmar", "Philippines", "Singapore", "Thailand",
+        "Timor-Leste", "Vietnam",
+    ]
+
     _country_dropdown = ft.Dropdown(
         label="Select Country",
         hint_text="Choose a country",
-        options=[ft.dropdown.Option(c) for c in _countries],
+        options=[ft.dropdown.Option(c) for c in _ASEAN_COUNTRIES],
         border_color=accent,
         border_radius=8,
         border_width=2,
@@ -1219,7 +1244,12 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         # Show/hide panel using height animation (no offset — avoids overlay issues)
         if mode is not None:
             panel_container.visible = True
-            panel_container.height = 120 if mode == "form" else _PANEL_OPEN_HEIGHT
+            if mode == "form":
+                panel_container.height = 120
+            elif mode == "web":
+                panel_container.height = 240
+            else:
+                panel_container.height = _PANEL_OPEN_HEIGHT
         else:
             # Reset form grid when closing
             _form_grid_wrapper.opacity = 0
@@ -1503,29 +1533,48 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             content = ft.Container(
                 content=ft.Text(text, color=BUBBLE_USER_FG, size=state.font_sp(), selectable=True),
                 gradient=_grad,
-                border_radius=16,
+                border_radius=ft.border_radius.only(top_left=16, top_right=4, bottom_left=16, bottom_right=16),
                 padding=ft.padding.symmetric(horizontal=14, vertical=10),
             )
-            bubble = ft.Row([content], alignment=ft.MainAxisAlignment.END, expand=True)
+            icon = ft.Icon(ft.icons.PERSON_ROUNDED, color=ft.colors.with_opacity(0.7, accent), size=18)
+            bubble = ft.Row(
+                [ft.Container(expand=True), content, icon],
+                alignment=ft.MainAxisAlignment.END,
+                vertical_alignment=ft.CrossAxisAlignment.END,
+                spacing=6,
+            )
 
         elif role == "result":
             content = ft.Container(
                 content=ft.Text(text, color=BUBBLE_USER_FG, size=state.font_sp(), selectable=True),
                 gradient=_grad,
-                border_radius=16,
+                border_radius=ft.border_radius.only(top_left=16, top_right=4, bottom_left=16, bottom_right=16),
                 padding=ft.padding.symmetric(horizontal=14, vertical=10),
                 expand=True,
             )
-            bubble = ft.Row([content], alignment=ft.MainAxisAlignment.END, expand=True)
+            icon = ft.Icon(ft.icons.ARTICLE_OUTLINED, color=ft.colors.with_opacity(0.7, accent), size=18)
+            bubble = ft.Row(
+                [ft.Container(expand=True), content, icon],
+                alignment=ft.MainAxisAlignment.END,
+                vertical_alignment=ft.CrossAxisAlignment.END,
+                spacing=6,
+            )
 
         elif role == "status":
             content = ft.Container(
-                content=ft.Text(
-                    text,
-                    color=BUBBLE_STATUS_FG,
-                    size=state.font_sp() - 2,
-                    italic=True,
-                    text_align=ft.TextAlign.CENTER,
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.icons.SYNC_ROUNDED, color=accent, size=13),
+                        ft.Text(
+                            text,
+                            color=BUBBLE_STATUS_FG,
+                            size=state.font_sp() - 2,
+                            italic=True,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                    ],
+                    spacing=6,
+                    tight=True,
                 ),
                 bgcolor=ft.colors.with_opacity(0.06, accent),
                 border_radius=20,
@@ -1591,9 +1640,17 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         import os
                         import asyncio as _asyncio
                         import edge_tts
-                        
+                        import re as _re
+
+                        # Strip summary/result header lines before speaking
+                        # e.g. "🌐 Website Summary  •  1,196→25 words (98% reduction)\n\nHere is your summary:\n\n"
+                        _tts_text = _re.sub(
+                            r'^[^\n]*(?:Summary|Result|Reduction|reduction|summary)[^\n]*\n+(?:Here is[^\n]*\n+)?',
+                            '', text, flags=_re.IGNORECASE
+                        ).strip() or text
+
                         # Validate text
-                        if not text or not text.strip():
+                        if not _tts_text or not _tts_text.strip():
                             raise ValueError("No text to speak")
                         
                         # Initialize pygame mixer if not already
@@ -1607,13 +1664,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         
                         # Generate audio using speak_answer with country-aware voice
                         async def generate_audio():
-                            from engine.speech.text_to_speech import speak_answer as _speak_answer
-                            country_code = _COUNTRY_CODE_MAP.get(state.country, "DEFAULT")
-                            print(f"🔊 TTS country: {state.country} -> code: {country_code}")
-                            # speak_answer writes to pygame directly; we capture to file instead
-                            import edge_tts
                             from engine.speech.text_to_speech import VOICE_MATRIX, get_lang
-                            lang = get_lang(text)
+                            country_code = _COUNTRY_CODE_MAP.get(state.country, "DEFAULT")
+                            lang = get_lang(_tts_text)
                             country_voices = VOICE_MATRIX.get(country_code, VOICE_MATRIX["DEFAULT"])
                             if isinstance(country_voices, str):
                                 voice = country_voices
@@ -1623,7 +1676,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                             last_error = None
                             for v in [voice, "en-US-AriaNeural"]:
                                 try:
-                                    communicate = edge_tts.Communicate(text, v)
+                                    communicate = edge_tts.Communicate(_tts_text, v)
                                     await communicate.save(audio_file[0])
                                     print(f"✅ TTS generated with voice: {v}")
                                     return
@@ -1700,44 +1753,61 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             # Build content with text, speaker button, and optional sources
             bubble_content = [
                 ft.Text(text, color=BUBBLE_BOT_FG, size=state.font_sp(), selectable=True),
-                ft.Container(height=8),
+                ft.Container(height=6),
                 speaker_btn,
             ]
-            
+
             # Add sources if provided
             if sources and len(sources) > 0:
-                bubble_content.append(ft.Container(height=8))
+                bubble_content.append(ft.Divider(height=8, color=ft.colors.with_opacity(0.1, accent)))
                 bubble_content.append(
-                    ft.Text(
-                        "References:",
-                        color=BUBBLE_BOT_FG,
-                        size=state.font_sp() - 2,
-                        weight=ft.FontWeight.BOLD,
+                    ft.Row(
+                        [
+                            ft.Icon(ft.icons.LINK_ROUNDED, color=accent, size=14),
+                            ft.Text("Sources", color=BUBBLE_BOT_FG, size=state.font_sp() - 2,
+                                    weight=ft.FontWeight.W_600),
+                        ],
+                        spacing=4,
                     )
                 )
                 for i, source in enumerate(sources, 1):
                     bubble_content.append(
-                        ft.Text(
-                            f"{i}. {source}",
-                            color=accent,
-                            size=state.font_sp() - 2,
-                            selectable=True,
+                        ft.Row(
+                            [
+                                ft.Text(f"{i}.", color=ft.colors.with_opacity(0.5, accent),
+                                        size=state.font_sp() - 2),
+                                ft.Text(source, color=accent, size=state.font_sp() - 2,
+                                        selectable=True,
+                                        overflow=ft.TextOverflow.ELLIPSIS),
+                            ],
+                            spacing=4,
                         )
                     )
-            
+
+            # Bot avatar + bubble layout
+            avatar = ft.Container(
+                content=ft.Icon(ft.icons.SMART_TOY_ROUNDED, color=ft.colors.WHITE, size=16),
+                width=30, height=30,
+                border_radius=15,
+                gradient=_grad,
+                alignment=ft.alignment.center,
+            )
+
             content = ft.Container(
-                content=ft.Column(
-                    bubble_content,
-                    spacing=4,
-                    tight=True,
-                ),
+                content=ft.Column(bubble_content, spacing=4, tight=True),
                 bgcolor=BUBBLE_BOT_BG,
-                border_radius=16,
+                border_radius=ft.border_radius.only(top_left=4, top_right=16, bottom_left=16, bottom_right=16),
                 padding=ft.padding.symmetric(horizontal=14, vertical=10),
                 expand=True,
                 border=ft.border.all(1, ft.colors.with_opacity(0.12, accent)),
             )
-            bubble = ft.Row([content], alignment=ft.MainAxisAlignment.START, expand=True)
+            bubble = ft.Row(
+                [avatar, content],
+                alignment=ft.MainAxisAlignment.START,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+                spacing=8,
+                expand=True,
+            )
 
         chat_list.controls.append(bubble)
         return bubble
@@ -1780,7 +1850,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             _add_bubble(msg, "user")
             chat_field.value = ""
             page.update()
-            _yes = any(w in msg.lower() for w in ("yes", "ya", "correct", "ok", "yep", "betul", "confirm"))
+            _yes = any(w in msg.lower() for w in _IV_YES_WORDS)
             if _yes:
                 _form_confirming[0] = False
                 _sig_points.clear()
@@ -1852,6 +1922,21 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     # Process the question with user's country and language preferences
                     print(f"Processing text question: {msg}")
                     print(f"User country: {state.country}, User language: {state.language}")
+
+                    # Translate query to English for search if input is non-English
+                    search_query = msg
+                    try:
+                        from fast_langdetect import detect as _fld
+                        _res = _fld(msg.lower())
+                        _iso = (_res[0].get("lang") if isinstance(_res, list) else _res.get("lang", "en")).lower()
+                        if _iso != "en":
+                            from engine.insert_doc.translate import translate as _tl
+                            _translated = _tl(msg, "English")
+                            if _translated and _translated.strip():
+                                search_query = _translated
+                                print(f"[home] Query translated: '{msg}' -> '{search_query}'")
+                    except Exception as _e:
+                        print(f"[home] Query detection/translation skipped: {_e}")
                     
                     # Update status: Generating answer
                     def _update_status_generate():
@@ -1861,9 +1946,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     _ui_call(_update_status_generate)
                     
                     response = process_voice_result(
-                        dialect="en",  # Detected dialect (not used when language is specified)
-                        question=msg,
-                        query=msg,
+                        dialect="en",
+                        question=msg,        # original language — used for response language detection
+                        query=search_query,  # English — used for SerpAPI search
                         country=state.country,
                         language=state.language
                     )
@@ -2479,11 +2564,19 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     # ------------------------------------------------------------------ #
 
     appbar = ft.AppBar(
-        title=ft.Text(
-            "ASEAN Gov Chat",
-            color=state.text_color(),
-            size=state.font_sp() + 2,
-            weight=ft.FontWeight.BOLD,
+        title=ft.Row(
+            [
+                ft.Icon(ft.icons.CHAT_BUBBLE_OUTLINE_ROUNDED, color=accent, size=20),
+                ft.Text(
+                    "Bridge",
+                    color=state.text_color(),
+                    size=state.font_sp() + 2,
+                    weight=ft.FontWeight.BOLD,
+                ),
+            ],
+            spacing=8,
+            alignment=ft.MainAxisAlignment.CENTER,
+            tight=True,
         ),
         bgcolor=ft.colors.TRANSPARENT,
         center_title=True,
@@ -3016,6 +3109,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     _iv_editing: list = [False]        # True while user is picking a field to edit
     _iv_edit_key: list = [None]        # label key of the field being re-answered
     _iv_sig_path: list = [None]
+    _iv_user_lang: list = ["English"]  # persists user language even after _iv_ai is cleared
+    _iv_responses: list = [None]       # persists ai.responses after _iv_ai is cleared
+    _iv_input_bboxes: list = [None]    # persists ai._input_bboxes after _iv_ai is cleared
     _iv_schema_to_delete: list = [None]
     _iv_audio_chunks: list = []
     _iv_sd_stream: list = [None]
@@ -3077,6 +3173,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         _iv_editing[0] = False
         _iv_edit_key[0] = None
         _iv_sig_path[0] = None
+        _iv_user_lang[0] = "English"
+        _iv_responses[0] = None
+        _iv_input_bboxes[0] = None
         _iv_question_text.value = ""
         _iv_question_text.size = state.font_sp() + 4
         _iv_help_icon.visible = True
@@ -3112,6 +3211,13 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         _iv_question_card.border = ft.border.all(2, accent)
         page.update()
 
+    def _iv_ui_t(phrase: str, language: str) -> str:
+        """Translate a short UI phrase into the user's language. English is returned as-is."""
+        if not language or language.lower() in ("english", "en"):
+            return phrase
+        from engine.insert_doc.translate import translate as _t
+        return _t(phrase, language)
+
     def _iv_show_edit_picker():
         """Replace the card content with a scrollable list of answered fields to edit."""
         ai = _iv_ai[0]
@@ -3120,6 +3226,10 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
         _iv_editing[0] = True   # picker is active
         _iv_edit_key[0] = None  # no specific field selected yet
+
+        # Persist responses now — _iv_ai may be cleared before PDF is written
+        _iv_responses[0] = dict(ai.responses)
+        _iv_input_bboxes[0] = dict(ai._input_bboxes)
 
         def _pick(key):
             """User tapped a field chip — pre-fill the input and switch to edit mode."""
@@ -3164,7 +3274,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
         _iv_question_card.content = ft.Column(
             [
-                ft.Text("Tap a field to edit it:", size=state.font_sp() - 1,
+                ft.Text(_iv_ui_t("Tap a field to edit it:", ai.user_language),
+                        size=state.font_sp() - 1,
                         weight=ft.FontWeight.W_600, color=state.text_color()),
                 ft.Column(chips, spacing=6, scroll=ft.ScrollMode.AUTO, expand=True),
             ],
@@ -3173,7 +3284,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         )
         _iv_question_card.height = 320
         _iv_question_card.border = ft.border.all(2, ft.colors.ORANGE_400)
-        _iv_last_answer_text.value = "Select a field to edit, or type 'done' to proceed to signature."
+        _iv_last_answer_text.value = _iv_ui_t(
+            "Tap a field to correct any misinformation, or type / say 'yes' to confirm.", ai.user_language
+        )
         _iv_status_text.value = ""
         _interview_progress_text.value = ""
         page.update()
@@ -3185,20 +3298,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 result = ai.generate_question()
 
                 if result is None:
-                    # Form complete — show summary inside the card
-                    tts_summary = ai.get_tts_summary()
+                    # Form complete — go straight to edit picker
                     def _done():
                         _iv_filling[0] = False
-                        _iv_confirming[0] = True
-                        _iv_question_text.value = tts_summary
-                        _iv_question_text.size = state.font_sp() - 1
-                        _iv_question_card.border = ft.border.all(2, ft.colors.GREEN_400)
-                        _iv_last_answer_text.value = "Type 'yes' to confirm or 'no' to discard."
+                        _iv_help_icon.visible = False
                         _iv_status_text.value = ""
                         _interview_field.value = ""
                         _interview_progress_text.value = ""
-                        _iv_help_icon.visible = False
                         page.update()
+                        _iv_show_edit_picker()
                     _ui_call(_done)
                     return
 
@@ -3249,6 +3357,10 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         sig   = _iv_sig_path[0]
         _iv_ai[0] = None
 
+        # Use persisted responses if ai is already cleared
+        responses    = ai.responses    if ai else (_iv_responses[0] or {})
+        input_bboxes = ai._input_bboxes if ai else (_iv_input_bboxes[0] or {})
+
         def _write():
             try:
                 from engine.insert_doc.write_doc import fill_pdf
@@ -3260,7 +3372,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
                 form_name = _sanitise(_iv_entry[0].get("display_name", "form") if _iv_entry[0] else "form")
                 user_name = _sanitise(
-                    next((v for k, v in ai.responses.items()
+                    next((v for k, v in responses.items()
                           if "nama" in k.lower() and "bank" not in k.lower() and "pegawai" not in k.lower()), "")
                     or "user"
                 )
@@ -3269,9 +3381,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 out_path = _os.path.join(out_dir, f"{form_name}_{user_name}.pdf")
 
                 out = fill_pdf(
-                    ai.responses, schema_path, pdf_path,
+                    responses, schema_path, pdf_path,
                     output_path=out_path,
-                    input_bboxes=ai._input_bboxes,
+                    input_bboxes=input_bboxes,
                     signature_path=sig,
                 )
 
@@ -3309,7 +3421,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             _iv_add_bubble(msg, "user")
             _interview_field.value = ""
             page.update()
-            _yes = any(w in msg.lower() for w in ("yes", "ya", "correct", "ok", "yep", "betul", "confirm"))
+            _yes = any(w in msg.lower() for w in _IV_YES_WORDS)
             if _yes:
                 _iv_confirming[0] = False
                 _iv_sig_path[0] = None
@@ -3325,7 +3437,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         if _iv_editing[0]:
             key = _iv_edit_key[0]
             ai = _iv_ai[0]
-            if msg.lower() in ("done", "confirm", "yes", "ok", "siap"):
+            if msg.lower() in ("done", "siap") or any(w in msg.lower() for w in _IV_YES_WORDS):
                 _iv_editing[0] = False
                 _iv_edit_key[0] = None
                 _interview_field.value = ""
@@ -3337,45 +3449,15 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     sig_modal.open = True
                     page.update()
                 else:
-                    # User typed "done" while editing a field — restore summary
-                    tts_summary = ai.get_tts_summary() if ai else ""
-                    _iv_question_card.content = ft.Stack(
-                        [
-                            ft.Container(
-                                content=ft.Column(
-                                    [_iv_help_icon, _iv_question_text],
-                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                                    alignment=ft.MainAxisAlignment.CENTER,
-                                    spacing=16,
-                                    scroll=ft.ScrollMode.AUTO,
-                                ),
-                                alignment=ft.alignment.center,
-                                expand=True,
-                                padding=ft.padding.only(bottom=36),
-                            ),
-                            ft.Container(
-                                content=_iv_listen_btn,
-                                alignment=ft.alignment.bottom_left,
-                                left=0, bottom=0,
-                            ),
-                        ],
-                        expand=True,
-                    )
-                    _iv_question_card.height = 220
-                    _iv_question_text.value = tts_summary
-                    _iv_question_text.size = state.font_sp() - 1
-                    _iv_help_icon.visible = False
-                    _iv_question_card.border = ft.border.all(2, ft.colors.GREEN_400)
-                    _iv_last_answer_text.value = "Type 'yes' to confirm or 'no' to edit more."
-                    _iv_status_text.value = ""
-                    _interview_progress_text.value = ""
-                    _iv_confirming[0] = True
-                    page.update()
+                    # User typed "done" while editing a field — go back to picker
+                    _iv_show_edit_picker()
             elif key and ai:
                 # Save new value and return to picker
                 _iv_add_bubble(msg, "user")
                 _interview_field.value = ""
                 ai.responses[key] = msg
+                if _iv_responses[0] is not None:
+                    _iv_responses[0][key] = msg
                 _iv_editing[0] = False
                 _iv_edit_key[0] = None
                 _iv_show_edit_picker()
@@ -3545,9 +3627,26 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 _ui_call(_set_playing)
 
                 country_code = _COUNTRY_CODE_MAP.get(state.country, "DEFAULT")
+                # Use the interview language directly to avoid misdetection on short text
+                _LANG_TO_ISO = {
+                    "English": "en",
+                    "Bahasa Melayu": "ms", "Malay": "ms",
+                    "Bahasa Indonesia": "id", "Indonesian": "id",
+                    "Thai": "th",
+                    "Vietnamese": "vi",
+                    "Filipino/Tagalog": "tl", "Filipino": "tl", "Tagalog": "tl",
+                    "Chinese (Simplified)": "zh",
+                    "Tamil": "ta",
+                    "Burmese": "my",
+                    "Khmer": "km",
+                    "Lao": "lo",
+                }
+                _ai = _iv_ai[0]
+                _user_lang = _ai.user_language if _ai else _iv_user_lang[0]
+                _lang_iso = _LANG_TO_ISO.get(_user_lang, "en")
                 loop = _asyncio.new_event_loop()
                 _asyncio.set_event_loop(loop)
-                loop.run_until_complete(speak_answer(text, country_code))
+                loop.run_until_complete(speak_answer(text, country_code, lang_override=_lang_iso))
                 loop.close()
 
             except Exception as exc:
@@ -3674,6 +3773,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         ai = _iv_ai[0]
         if ai:
             ai.set_language(lang)
+        _iv_user_lang[0] = lang  # persist for TTS even after ai is cleared
         _iv_filling[0] = True
         _iv_lang_screen.visible = False
         _iv_qa_screen.visible = True
