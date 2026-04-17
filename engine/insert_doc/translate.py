@@ -42,6 +42,7 @@ def translate(sentence: str, language: str) -> str:
     prompt = (
         f"<|im_start|>system\n"
         f"You are a translator. Output ONLY the translated sentence. No explanations, no notes, no language names.\n"
+        f"If a word is slang, a proper noun, or untranslatable, keep it as-is but translate everything else.\n"
         f"<|im_end|>\n"
         f"<|im_start|>user\n"
         f"Translate the following text into {language}. Reply with the translation only:\n"
@@ -67,7 +68,7 @@ def translate(sentence: str, language: str) -> str:
         llm = _get_llm()
         output = llm(
             prompt,
-            max_tokens=80,
+            max_tokens=120,
             temperature=0.1,
             stop=["\n", "<|im_end|>", "Question:", "Translation:", "Note:", "translated:", "Translated:",
                   " bahasa", " Bahasa", " malay", " Malay", " english", " English"],
@@ -134,6 +135,9 @@ _NO_TRANSLATE_KEYWORDS = {
     'date of incident', 'tarikh kejadian',
     'postcode', 'zip', 'poskod',
     'address', 'alamat', 'addr',
+    'location', 'lokasi', 'place', 'tempat',
+    'street', 'jalan', 'road', 'avenue', 'lane', 'boulevard',
+    'city', 'bandar', 'town', 'state', 'negeri', 'district', 'daerah',
 }
 
 
@@ -200,16 +204,24 @@ def translate_field_value(value: str, label: str, language: str) -> str:
     if not value or not value.strip():
         return value
     if _should_skip_translation(label):
+        print(f"[translate] skip identity/contact field '{label}': '{value[:40]}'")
         return value
     # Purely numeric / symbolic — no translation needed
     if re.match(r'^[\d\s\-\/\.\,\+\(\)]+$', value.strip()):
+        print(f"[translate] skip numeric/symbolic: '{value[:40]}'")
         return value
-    # Skip if the value is already in the target language
-    target_iso = _lang_name_to_iso(language)
-    if target_iso != 'unknown':
-        detected_iso = _detect_lang_iso(value)
-        if detected_iso == target_iso:
-            print(f"[translate] skip — already {language}: '{value[:40]}'")
-            return value
+    # For free-text narrative fields, always translate — detection is unreliable on mixed text
+    _FREE_TEXT_KEYWORDS = {'statement', 'facts', 'description', 'keterangan', 'penerangan', 'remarks', 'notes'}
+    is_free_text = any(kw in label.lower() for kw in _FREE_TEXT_KEYWORDS)
+    if not is_free_text:
+        # Skip only if detection is confident AND matches target language
+        target_iso = _lang_name_to_iso(language)
+        if target_iso != 'unknown':
+            detected_iso = _detect_lang_iso(value)
+            if detected_iso == target_iso:
+                print(f"[translate] skip — already {language}: '{value[:40]}'")
+                return value
+    
+    print(f"[translate] translating '{label}' from user language to {language}: '{value[:60]}'")
     return translate(value, language)
 

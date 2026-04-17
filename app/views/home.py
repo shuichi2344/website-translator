@@ -3243,7 +3243,32 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             _iv_last_answer_text.value = f"Current: {current_val}"
             _iv_status_text.value = ""
             _interview_field.value = current_val
+            _interview_field.read_only = False
             _interview_progress_text.value = "Type new answer and press Enter, or tap mic."
+            # Restore card to question layout so the field is visible
+            _iv_question_card.content = ft.Stack(
+                [
+                    ft.Container(
+                        content=ft.Column(
+                            [_iv_help_icon, _iv_question_text],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            spacing=16,
+                            scroll=ft.ScrollMode.AUTO,
+                        ),
+                        alignment=ft.alignment.center,
+                        expand=True,
+                        padding=ft.padding.only(bottom=36),
+                    ),
+                    ft.Container(
+                        content=_iv_listen_btn,
+                        alignment=ft.alignment.bottom_left,
+                        left=0, bottom=0,
+                    ),
+                ],
+                expand=True,
+            )
+            _iv_question_card.height = 220
             page.update()
 
         chips = []
@@ -3274,7 +3299,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
         _iv_question_card.content = ft.Column(
             [
-                ft.Text(_iv_ui_t("Tap a field to edit it:", ai.user_language),
+                ft.Text("Tap a field to edit it:",
                         size=state.font_sp() - 1,
                         weight=ft.FontWeight.W_600, color=state.text_color()),
                 ft.Column(chips, spacing=6, scroll=ft.ScrollMode.AUTO, expand=True),
@@ -3284,9 +3309,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         )
         _iv_question_card.height = 320
         _iv_question_card.border = ft.border.all(2, ft.colors.ORANGE_400)
-        _iv_last_answer_text.value = _iv_ui_t(
-            "Tap a field to correct any misinformation, or type / say 'yes' to confirm.", ai.user_language
-        )
+        _iv_last_answer_text.value = "Tap a field to correct any misinformation, or type / say 'yes' to confirm."
         _iv_status_text.value = ""
         _interview_progress_text.value = ""
         page.update()
@@ -3347,7 +3370,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             _ui_call(_err)
         finally:
             _iv_filling[0] = False
-            if not _iv_confirming[0]:
+            if not _iv_confirming[0] and not _iv_editing[0]:
                 _iv_ai[0] = None
 
     def _iv_do_write_pdf():
@@ -3544,8 +3567,16 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         _iv_add_bubble(t, "user")
                         page.update()
                         ai = _iv_ai[0]
-                        if ai and (_iv_filling[0] or _iv_confirming[0]):
+                        if _iv_filling[0] and ai:
+                            # Normal Q&A — unblock the session loop
                             ai.submit_answer(t)
+                        elif _iv_confirming[0] and ai:
+                            # Confirmation step
+                            ai.submit_answer(t)
+                        elif _iv_editing[0]:
+                            # Edit picker — treat voice input as a typed answer
+                            _interview_field.value = t
+                            _iv_on_submit()
                     page.update()
                 _ui_call(_done)
             except Exception as exc:

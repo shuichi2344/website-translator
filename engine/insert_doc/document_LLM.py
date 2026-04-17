@@ -470,14 +470,15 @@ class InclusiveCitizenAI:
             self.current_field_index += 1
             return value
 
-        # Treat any input ≤ 80 chars as a direct value — covers names, IDs,
-        # addresses, and short answers in any language including CJK scripts.
+        # Treat any input ≤ 80 chars as a direct value
         is_direct = len(stripped) <= 80 and not re.search(
             r'\b(is|are|was|were|my|the|it|i am|i have)\b',
             stripped, re.IGNORECASE
         )
         if is_direct:
             value = stripped
+            if any(kw in label.lower() for kw in _EMAIL_LABEL_KEYWORDS):
+                value = value.lower()
             print(f"[extract] field='{label}' direct -> '{value}'")
             self._save_value(field, label, value)
             self._current_merged_slot = 0
@@ -498,9 +499,11 @@ class InclusiveCitizenAI:
         print(f"[extract] field='{label}' input='{user_text}' -> '{value}'")
 
         if "RETRY" in value.upper() or len(value.strip()) < 1:
-            # Last resort: just use the raw input rather than blocking the user
             value = stripped
             print(f"[extract] fallback to raw input -> '{value}'")
+
+        if any(kw in label.lower() for kw in _EMAIL_LABEL_KEYWORDS):
+            value = value.lower()
 
         self._save_value(field, label, value)
         self._current_merged_slot = 0
