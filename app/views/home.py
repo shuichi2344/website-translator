@@ -846,12 +846,17 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         filepath = selected_file[0]
         lang_code = LANG_CODE_MAP.get(doc_lang_dropdown.value or "English", "en")
         
+        # Detect if the selected file is an image
+        _img_exts = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".webp"}
+        import os as _os
+        _is_image = _os.path.splitext(filepath or "")[1].lower() in _img_exts
+
         # Hide the document panel immediately
         set_mode(None)
         
-        _add_bubble(f"Summarising document: {selected_file_name[0]}", "user")
+        _add_bubble(f"Summarising {'image' if _is_image else 'document'}: {selected_file_name[0]}", "user")
         # Add status indicator with real-time updates
-        status_bubble = _add_bubble("📄 Processing document...", "status")
+        status_bubble = _add_bubble(f"{'🖼️ Processing image...' if _is_image else '📄 Processing document...'}", "status")
         page.update()
 
         def _work():
@@ -860,7 +865,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 # Update status: Extracting text
                 def _update_status_extract():
                     if status_bubble in chat_list.controls:
-                        status_bubble.controls[0].content.value = "📖 Extracting text..."
+                        status_bubble.controls[0].content.value = "🔍 Analysing image with Gemini Vision..." if _is_image else "📖 Extracting text..."
                         page.update()
                 _ui_call(_update_status_extract)
                 
@@ -887,13 +892,14 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                             chat_list.controls.remove(status_bubble)
                     _ui_call(_remove_status)
                     # Use bot bubble with TTS support
-                    _add_bubble_safe(f"📄 Document Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot")
+                    label = "🖼️ Image Summary" if _is_image else "📄 Document Summary"
+                    _add_bubble_safe(f"{label}  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot")
                     
                     # Save to database
                     rag = get_rag_instance()
                     if RAG_AVAILABLE and rag and state.conversation_id:
                         try:
-                            rag.save_bot_message(state.conversation_id, f"Document Summary: {summary}")
+                            rag.save_bot_message(state.conversation_id, f"{'Image' if _is_image else 'Document'} Summary: {summary}")
                         except Exception as e:
                             print(f"⚠️ Failed to save bot message: {e}")
                 else:
@@ -901,7 +907,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         if status_bubble in chat_list.controls:
                             chat_list.controls.remove(status_bubble)
                     _ui_call(_remove_status)
-                    _add_bubble_safe("⚠️ Failed to process document.", "status")
+                    _add_bubble_safe(f"⚠️ Failed to process {'image' if _is_image else 'document'}.", "status")
             except Exception as exc:
                 def _remove_status():
                     if status_bubble in chat_list.controls:
@@ -1174,11 +1180,18 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     web_summarise_btn  = _action_btn("Summarize Website",  ft.icons.AUTO_AWESOME_OUTLINED,  on_web_summarise)
 
     def _refresh_summarise_btn():
+        import os as _os
+        _img_exts = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".webp"}
+        _sel = selected_file[0] or ""
+        _is_image = _os.path.splitext(_sel)[1].lower() in _img_exts
+
         has_input = (active_mode[0] == "document" and selected_file[0] is not None) or \
                     (active_mode[0] == "web" and url_valid[0])
         # Summarize buttons only enabled when there's valid input
         doc_summarise_btn.disabled = not has_input
         web_summarise_btn.disabled = not has_input
+        # Update label to reflect image vs document
+        doc_summarise_btn.text = "Summarize Image" if _is_image else "Summarize Document"
         page.update()
 
     # ------------------------------------------------------------------ #

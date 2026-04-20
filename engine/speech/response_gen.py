@@ -21,6 +21,17 @@ LANGUAGE_DIALECT_MAP = {
     "Lao": "Lao",
     "Chinese (Simplified)": "Simplified Chinese",
     "Tamil": "Tamil",
+    # Singlish / Manglish and mixed dialects
+    "Manglish": "Manglish (Malaysian English with Malay/Chinese particles like lah, lor, mah, kan)",
+    "Singlish": "Singlish (Singaporean English with particles like lah, lor, sia, can or not)",
+    "Manglish+English": "Manglish (Malaysian English with Malay/Chinese particles like lah, lor, mah, kan)",
+    "Singlish+English": "Singlish (Singaporean English with particles like lah, lor, sia, can or not)",
+    "English+Manglish": "Manglish (Malaysian English with Malay/Chinese particles like lah, lor, mah, kan)",
+    "English+Singlish": "Singlish (Singaporean English with particles like lah, lor, sia, can or not)",
+    "Hokkien": "Hokkien-influenced English (mix Hokkien words naturally)",
+    "Cantonese": "Cantonese-influenced English (mix Cantonese words naturally)",
+    "Taglish": "Taglish (Tagalog-English mix)",
+    "Thai-English": "Thai-English (mix simple Thai words naturally)",
 }
 
 def get_dialect_from_language(language):
@@ -54,22 +65,22 @@ def generate_final_response(user_question, relevant_chunks, dialect):
     You are the ASEAN Official Digital Assistant. 
     Your goal is to provide accurate government information based ONLY on the provided snippets.
     
-    TARGET LANGUAGE: {dialect}
+    TARGET LANGUAGE/DIALECT: {dialect}
     USER QUESTION: {user_question}
     
     OFFICIAL SNIPPETS:
     {context}
     
     INSTRUCTIONS FOR SPEECH-OPTIMIZED OUTPUT:
-    1. LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
+    1. LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages unless the dialect itself is a mix (e.g. Manglish, Singlish, Taglish).
     2. YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
-    3. DIALECT FLAVOR: Use the vocabulary, sentence structure, and particles of {dialect}.
+    3. DIALECT FLAVOR: Use the vocabulary, sentence structure, and particles natural to {dialect}. For example, if Manglish: use lah, lor, mah, kan naturally at sentence ends. If Singlish: use lah, lor, sia, can or not, right naturally.
     4. NO WEBSITES OR URLS: Do not mention any URLs (e.g., do not say MySikap, ICA, or dot gov).
     5. DATA ONLY: Focus on the specific fees, document requirements, or eligibility details found in the snippets.
-    6. NO MARKDOWN: DO NOT bolding (**), asterisks (*), or hashtags (#). 
+    6. NO MARKDOWN: DO NOT use bolding (**), asterisks (*), or hashtags (#). 
     7. Use bullet points and numbering.
     8. STOP ABRUPTLY: Once you have given the factual answer and details, STOP. Do not add a polite closing or a "hope this helps."
-    9. Text Simplification (Lexical Level): Automatically replace complex legal or medical jargon with simple, everyday language (e.g., 5th-grade reading level). 
+    9. Text Simplification: Replace complex legal or medical jargon with simple, everyday language (5th-grade reading level). 
     """
             
             response = model.generate_content(prompt)
@@ -110,22 +121,22 @@ def generate_final_response(user_question, relevant_chunks, dialect):
     You are the ASEAN Official Digital Assistant. 
     Your goal is to provide accurate government information based ONLY on the provided snippets.
     
-    TARGET LANGUAGE: {dialect}
+    TARGET LANGUAGE/DIALECT: {dialect}
     USER QUESTION: {user_question}
     
     OFFICIAL SNIPPETS:
     {context}
     
     INSTRUCTIONS FOR SPEECH-OPTIMIZED OUTPUT:
-    1. LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages.
+    1. LANGUAGE: Respond ENTIRELY in {dialect}. Do not mix languages unless the dialect itself is a mix (e.g. Manglish, Singlish, Taglish).
     2. YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in the target language.
-    3. DIALECT FLAVOR: Use the vocabulary, sentence structure, and particles of {dialect}.
+    3. DIALECT FLAVOR: Use the vocabulary, sentence structure, and particles natural to {dialect}. For example, if Manglish: use lah, lor, mah, kan naturally at sentence ends. If Singlish: use lah, lor, sia, can or not, right naturally.
     4. NO WEBSITES OR URLS: Do not mention any URLs (e.g., do not say MySikap, ICA, or dot gov).
     5. DATA ONLY: Focus on the specific fees, document requirements, or eligibility details found in the snippets.
-    6. NO MARKDOWN: DO NOT bolding (**), asterisks (*), or hashtags (#). 
+    6. NO MARKDOWN: DO NOT use bolding (**), asterisks (*), or hashtags (#). 
     7. Use bullet points and numbering.
     8. STOP ABRUPTLY: Once you have given the factual answer and details, STOP. Do not add a polite closing or a "hope this helps."
-    9. Text Simplification (Lexical Level): Automatically replace complex legal or medical jargon with simple, everyday language (e.g., 5th-grade reading level). 
+    9. Text Simplification: Replace complex legal or medical jargon with simple, everyday language (5th-grade reading level). 
     """
         
         response = model_backup.generate_content(prompt)

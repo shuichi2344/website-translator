@@ -66,6 +66,38 @@ _SYMBOL_MAP = [
 _RE_AT = re.compile(r'\bat\b', re.IGNORECASE)
 _EMAIL_LABEL_KEYWORDS = {'email', 'e-mail', 'emel', 'mel'}
 
+# ---------------------------------------------------------------------------
+# Manglish / Singlish sentence-final and filler particles to strip
+# ---------------------------------------------------------------------------
+_PARTICLES = [
+    # Manglish / Singlish sentence-final
+    "lah", "la", "lor", "loh", "mah", "meh", "wor", "woh",
+    "hor", "hah", "har", "hor", "sia", "sial", "kan", "kan",
+    "leh", "leh", "nah", "wah", "ah", "oh", "oi",
+    # Filler / discourse
+    "one", "de", "dei", "nia", "only", "also", "also lah",
+    # Malay particles that leak into Manglish
+    "pun", "je", "je lah", "boleh", "kan", "tau", "tahu",
+]
+# Build a single regex: matches any particle at end-of-string (with optional punctuation)
+# or as a standalone comma-separated tag anywhere in the string.
+_PARTICLE_END_RE = re.compile(
+    r'(?:[,\s]+(?:' + '|'.join(re.escape(p) for p in _PARTICLES) + r'))+[.!?,\s]*$',
+    re.IGNORECASE,
+)
+# Also strip particles that appear as leading interjections: "wah, my name is..."
+_PARTICLE_LEAD_RE = re.compile(
+    r'^(?:(?:' + '|'.join(re.escape(p) for p in _PARTICLES) + r')[,!\s]+)+',
+    re.IGNORECASE,
+)
+
+
+def _strip_particles(text: str) -> str:
+    """Remove Manglish/Singlish particles from the start and end of a string."""
+    s = _PARTICLE_END_RE.sub('', text).strip()
+    s = _PARTICLE_LEAD_RE.sub('', s).strip()
+    return s.strip('.,!? ')
+
 # Single letters separated by hyphens OR spaces: J-A-M-E-S or J A M E S
 _RE_LETTER_RUN = re.compile(r'\b([A-Za-z][\s\-])+[A-Za-z]\b')
 # Single digits separated by hyphens, spaces, or commas (including combinations like ", ")
@@ -456,6 +488,12 @@ class InclusiveCitizenAI:
         if collapsed != stripped:
             print(f"[extract] spelling collapsed: '{stripped}' -> '{collapsed}'")
             stripped = collapsed
+
+        # Strip Manglish/Singlish particles (lah, lor, mah, kan, wor, sia, etc.)
+        departicled = _strip_particles(stripped)
+        if departicled != stripped:
+            print(f"[extract] particles stripped: '{stripped}' -> '{departicled}'")
+            stripped = departicled
 
         # Normalize time fields — extract HH:MM from verbose answers
         if re.search(r'\btime\b', label, re.IGNORECASE):

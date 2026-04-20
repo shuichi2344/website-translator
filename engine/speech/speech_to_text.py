@@ -68,39 +68,80 @@ def get_llm_instance():
 # UTILITIES
 # ==========================
 
+# Whisper hallucinations: Singlish/Manglish particles that get mis-transcribed
+# as real English words. Map the hallucinated form back to the particle.
+_WHISPER_HALLUCINATIONS = {
+    r'\bLily\b':    'leh',
+    r'\bla\b':      'lah',
+    r'\bLa\b':      'lah',
+    r'\bLor\b':     'lor',
+    r'\bMar\b':     'mah',
+    r'\bWar\b':     'wor',
+    r'\bHor\b':     'hor',
+    r'\bSia\b':     'sia',
+}
+
+# Filler sounds to strip entirely
+_RE_FILLERS = re.compile(
+    r'\b(hmm+|hm+|uh+|um+|er+|ah+|oh+|eh+)\b[,.]?',
+    re.IGNORECASE,
+)
+
+# Trailing/leading punctuation cleanup after filler removal
+_RE_MULTI_SPACE = re.compile(r'  +')
+
+
+def _clean_transcript(text: str) -> str:
+    """
+    Post-process Whisper output:
+    1. Restore Singlish/Manglish particles that Whisper hallucinated as English words.
+    2. Strip filler sounds (hmm, uh, um, er).
+    3. Tidy up leftover whitespace.
+    """
+    s = text
+
+    # Restore hallucinated particles
+    for pattern, replacement in _WHISPER_HALLUCINATIONS.items():
+        s = re.sub(pattern, replacement, s)
+
+    # Strip filler sounds
+    s = _RE_FILLERS.sub('', s)
+
+    # Tidy whitespace and trailing punctuation
+    s = _RE_MULTI_SPACE.sub(' ', s).strip().strip(',').strip()
+
+    if s != text:
+        print(f"[transcript] cleaned: '{text}' -> '{s}'")
+
+    return s
+
+
 def _detect_dialect(text: str) -> str:
     """
-    Detect dialect/language using fast_langdetect instead of the LLM.
-    Maps ISO 639-1 codes to ASEAN dialect names.
+    Detect dialect/language using Sailor2 LLM.
+    Recognises ASEAN dialects including Manglish and Singlish.
     """
-    _ISO_TO_DIALECT = {
-        "en": "English",
-        "ms": "Malay",
-        "id": "Indonesian",
-        "th": "Thai",
-        "vi": "Vietnamese",
-        "tl": "Tagalog",
-        "fil": "Tagalog",
-        "zh": "Mandarin",
-        "ta": "Tamil",
-        "my": "Burmese",
-        "km": "Khmer",
-        "lo": "Lao",
-        "su": "Sundanese",
-        "jv": "Javanese",
-    }
+    sys_msg = (
+        "You are an ASEAN Linguistic Expert. Detect the dialect(s) from this list: "
+        "Manglish, Singlish, Thai-English, Malay, Hokkien, Cantonese, Tagalog, Taglish, "
+        "Indonesian, Thai, Lao, Burmese, Sundanese, Vietnamese, Khmer, English.\n"
+        "RULE: If multiple dialects are used, combine them with a '+'.\n"
+        "Example: 'Sawadika, where is the shop?' -> Thai+English\n"
+        "Example: 'Eh where got cheap makan ah?' -> Manglish\n"
+        "Output ONLY the dialect name(s). No extra words or parentheses."
+    )
+    prompt = (
+        f"<|im_start|>system\n{sys_msg}<|im_end|>\n"
+        f"<|im_start|>user\nText: {text}<|im_end|>\n"
+        f"<|im_start|>assistant\n"
+    )
     try:
-        from fast_langdetect import detect as _fl_detect
-        results = _fl_detect(text)
-        if isinstance(results, list) and results:
-            lang = results[0].get("lang", "en").lower()
-        elif isinstance(results, dict):
-            lang = results.get("lang", "en").lower()
-        else:
-            lang = "en"
-        return _ISO_TO_DIALECT.get(lang, lang.upper())
+        llm = get_llm_instance()
+        output = llm(prompt, max_tokens=20, stop=["<|im_end|>", "\n\n"], temperature=0.1)
+        result = output["choices"][0]["text"].strip()
+        return result if result else "English"
     except Exception as e:
-        print(f"[dialect] fast_langdetect failed: {e}")
+        print(f"[dialect] Sailor2 failed: {e}")
         return "English"
 
 
@@ -187,11 +228,15 @@ class PTTSession:
 
         # 1. TRANSCRIBE
         asr = get_asr_pipe()
-        res = asr(audio_np, generate_kwargs={"task": "transcribe", "do_sample": False})
+        res = asr(audio_np, generate_kwargs={"task": "transcribe", "language": "english", "do_sample": False})
         raw_text = res["text"].strip()
         
         print(f"Raw Transcription: {raw_text}")
         if len(raw_text) < 2: return
+
+        # Clean up Whisper hallucinations and filler sounds
+        raw_text = _clean_transcript(raw_text)
+        print(f"Cleaned Transcription: {raw_text}")
 
         # 2. ANALYZE (Three separate focused passes)
         print("Normalizing and Generating Query...")

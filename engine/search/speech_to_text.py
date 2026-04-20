@@ -156,7 +156,7 @@ def transcribe_audio(filepath: str, *, normalize_to_question: bool = False, coun
         samples = np.concatenate([np.zeros(pad, dtype=np.float32), samples, np.zeros(pad, dtype=np.float32)])
 
     asr = get_asr_pipe()
-    res = asr(samples, generate_kwargs={"task": "transcribe"}, chunk_length_s=30, stride_length_s=5)
+    res = asr(samples, generate_kwargs={"task": "transcribe", "language": "english"}, chunk_length_s=30, stride_length_s=5)
     raw_text = (res.get("text") or "").strip()
     if not raw_text:
         return ""
@@ -218,7 +218,7 @@ class PTTSession:
 
         # 1. TRANSCRIBE
         asr = get_asr_pipe()
-        res = asr(audio_np, generate_kwargs={"task": "transcribe", "do_sample": False})
+        res = asr(audio_np, generate_kwargs={"task": "transcribe", "language": "english", "do_sample": False})
         raw_text = res["text"].strip()
         
         print(f"Raw Transcription: {raw_text}")

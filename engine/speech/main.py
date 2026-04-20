@@ -46,6 +46,18 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
             print(f"[main] Language detection failed: {_e}")
 
     target_dialect = get_dialect_from_language(detected_language)
+
+    # If Sailor2 detected a specific dialect (Singlish, Manglish, etc.) that the
+    # language detector can't capture (it only sees ISO codes), prefer that.
+    _SAILOR2_DIALECTS = {
+        "Manglish", "Singlish", "Hokkien", "Cantonese", "Taglish", "Thai-English",
+        "Manglish+English", "Singlish+English", "English+Manglish", "English+Singlish",
+    }
+    if dialect and any(d in dialect for d in _SAILOR2_DIALECTS):
+        sailor2_dialect = get_dialect_from_language(dialect)
+        if sailor2_dialect != "Standard English":
+            target_dialect = sailor2_dialect
+            print(f"[main] Using Sailor2 dialect override: {dialect} -> {target_dialect}")
     country_suffix = get_country_suffix(country)
 
     print("-" * 30)
