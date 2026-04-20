@@ -483,36 +483,29 @@ class TelegramMessageHandler:
     def _generate_simple_response(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """
         Generate a simple, child-friendly response for Telegram bot
-        Model hierarchy: Gemini 3 Flash (primary with retries) → Gemini 3.1 Flash Lite (backup) → qwen2.5:7b (local fallback)
+        Model hierarchy: Groq Llama 4 Scout (primary) → Gemini 3.1 Flash Lite (backup) → qwen2.5:7b (local fallback)
         SYNCHRONOUS - Use _generate_simple_response_async for async contexts
         """
-        # Try Gemini 3 Flash with retry logic (handles rate limits)
-        max_retries = 3
-        retry_delay = 2  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                import google.generativeai as genai_old
-                import time
-                
-                api_key = os.getenv('GEMINI_API_KEY')
-                if not api_key:
-                    print("⚠️ Gemini API key not configured, trying fallback model...")
-                    return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
-                
-                if attempt > 0:
-                    print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for Gemini 3 Flash...")
-                    time.sleep(retry_delay * attempt)  # Exponential backoff
-                else:
-                    print(f"✨ Using Gemini 3 Flash (primary) for response generation...")
-                
-                genai_old.configure(api_key=api_key)
-                model = genai_old.GenerativeModel('gemini-3-flash-preview')
-                
-                # Combine chunks into context
-                context = "\n---\n".join(relevant_chunks)
-                
-                prompt = f"""You are Bridge, the ASEAN government information assistant.
+        # Try Groq Llama 4 Scout first (fastest and most reliable)
+        try:
+            from groq import Groq
+            
+            api_key = os.getenv('GROQ_API_KEY')
+            if not api_key or api_key == 'your_groq_api_key_here':
+                print("⚠️ Groq API key not configured, trying Gemini...")
+                gemini_response = self._generate_response_with_gemini_lite(user_question, relevant_chunks, dialect)
+                if gemini_response:
+                    return gemini_response
+                return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
+            
+            print(f"✨ Using Groq Llama 4 Scout for response generation...")
+            
+            client = Groq(api_key=api_key)
+            
+            # Combine chunks into context
+            context = "\n---\n".join(relevant_chunks)
+            
+            prompt = f"""You are Bridge, the ASEAN government information assistant.
 Answer the user's question based ONLY on the provided government information.
 
 TARGET LANGUAGE: {dialect}
@@ -536,45 +529,44 @@ IMPORTANT - Write in simple, clear {dialect}:
 - STOP when done - no polite closings like "hope this helps"
 
 Answer (in simple, clear {dialect}):"""
-                
-                response = model.generate_content(prompt)
-                
-                if response and response.text:
-                    # Clean up any markdown formatting
-                    clean_text = response.text.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
-                    print(f"✅ Gemini 3 Flash response generated successfully")
-                    return clean_text
-                
-                # If no response, try next attempt
-                if attempt < max_retries - 1:
-                    print("⚠️ Gemini 3 Flash returned empty response, retrying...")
-                    continue
-                    
-            except Exception as e:
-                error_msg = str(e).lower()
-                
-                # Check if it's a rate limit error
-                if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg or '429' in error_msg:
-                    if attempt < max_retries - 1:
-                        print(f"⚠️ Gemini 3 Flash rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
-                        continue
-                    else:
-                        print(f"⚠️ Gemini 3 Flash rate limit exceeded after {max_retries} attempts")
-                else:
-                    print(f"⚠️ Gemini 3 Flash error: {e}")
-                    if attempt < max_retries - 1:
-                        print(f"   Retrying...")
-                        continue
-        
-        # All Gemini 3 Flash attempts failed, try Gemini 3.1 Flash Lite as backup
-        print("   Trying Gemini 3.1 Flash Lite (backup model)...")
-        gemini_lite_response = self._generate_response_with_gemini_lite(user_question, relevant_chunks, dialect)
-        if gemini_lite_response:
-            return gemini_lite_response
-        
-        # All Gemini models failed, use Ollama fallback
-        print("   Falling back to qwen2.5:7b (local model)...")
-        return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
+            
+            # Use non-streaming for simplicity
+            completion = client.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.4,
+                max_completion_tokens=1024,
+                top_p=0.95,
+                stream=False
+            )
+            
+            if completion and completion.choices:
+                answer = completion.choices[0].message.content.strip()
+                # Clean up any markdown formatting
+                clean_text = answer.replace('**', '').replace('*', '').replace('__', '').replace('#', '').strip()
+                print(f"✅ Groq Llama 4 Scout response generated successfully")
+                return clean_text
+            
+            # If no response, try backup
+            print("⚠️ Groq returned empty response, trying Gemini...")
+            gemini_response = self._generate_response_with_gemini_lite(user_question, relevant_chunks, dialect)
+            if gemini_response:
+                return gemini_response
+            return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            print(f"⚠️ Groq error: {e}")
+            print("   Falling back to Gemini...")
+            gemini_response = self._generate_response_with_gemini_lite(user_question, relevant_chunks, dialect)
+            if gemini_response:
+                return gemini_response
+            
+            # All cloud models failed, use local Ollama fallback
+            print("   Falling back to qwen2.5:7b (local model)...")
+            return self._generate_response_with_ollama(user_question, relevant_chunks, dialect)
     
     async def _generate_simple_response_async(self, user_question: str, relevant_chunks: list, dialect: str) -> str:
         """Async wrapper for _generate_simple_response to enable concurrent processing"""
@@ -1478,7 +1470,9 @@ Answer (in simple, clear English):"""
             return "Sorry, I encountered an error while processing your question."
     
     async def _process_image_analysis(self, user_id: str, question: str, telegram_user) -> str:
-        """Analyze an image using Gemini Vision"""
+        """Analyze an image using Groq Vision (Llama 4 Scout)"""
+        import os  # Import at function level to avoid scope issues
+        
         try:
             # Thread-safe access to document info
             with self._user_docs_lock:
@@ -1487,7 +1481,7 @@ Answer (in simple, clear English):"""
                     return "⚠️ No image found. Please upload an image first."
                 file_path = doc_info['file_path']
             
-            print(f"🔍 Analyzing image with Gemini Vision")
+            print(f"🔍 Analyzing image with Groq Vision (Llama 4 Scout)")
             print(f"❓ Question: {question}")
             
             # Get user language preference
@@ -1517,7 +1511,90 @@ Answer (in simple, clear English):"""
             
             print(f"🗣️ Response will be in: {language_name}")
             
-            # Use new Google GenAI library (same as document summarizer)
+            # Try Groq first (primary)
+            try:
+                from groq import Groq
+                import base64
+                
+                api_key = os.getenv('GROQ_API_KEY')
+                if api_key and api_key != 'your_groq_api_key_here':
+                    print("✨ Using Groq for image analysis...")
+                    
+                    client = Groq(api_key=api_key)
+                    
+                    # Encode image to base64
+                    with open(file_path, 'rb') as img_file:
+                        image_data = base64.b64encode(img_file.read()).decode('utf-8')
+                    
+                    # Determine image format
+                    ext = os.path.splitext(file_path)[1].lower()
+                    mime_type = {
+                        '.jpg': 'image/jpeg',
+                        '.jpeg': 'image/jpeg',
+                        '.png': 'image/png',
+                        '.gif': 'image/gif',
+                        '.webp': 'image/webp'
+                    }.get(ext, 'image/jpeg')
+                    
+                    prompt = f"""{question}
+
+IMPORTANT - Write like you're explaining to a 10-year-old child:
+- LANGUAGE: Respond ENTIRELY in {language_name}. Do not mix languages.
+- YES/NO FIRST: If the user is asking a closed-ended question, start the response with a clear "Yes" or "No" in {language_name}.
+- Use everyday words that kids understand (avoid technical jargon)
+- Explain what things DO, not what they're called
+- If you must use a technical term, explain it in simple words right after
+- Focus on the MAIN IDEAS only - skip minor details
+- Do NOT include titles, headers, or bold text (**) 
+- Do NOT write intro text like "Here are the bullet points"
+
+Answer in {language_name}:"""
+                    
+                    # Use Groq's vision model
+                    completion = client.chat.completions.create(
+                        model="meta-llama/llama-4-scout-17b-16e-instruct",
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": prompt
+                                    },
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{mime_type};base64,{image_data}"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        temperature=0.4,
+                        max_completion_tokens=1024,
+                        top_p=0.95
+                    )
+                    
+                    if completion and completion.choices:
+                        answer = completion.choices[0].message.content.strip()
+                        # Clean up any markdown formatting
+                        answer = answer.replace('**', '').replace('*', '').replace('__', '')
+                        
+                        print("✅ Groq image analysis successful")
+                        return (
+                            f"🖼️ <b>Image Analysis</b>\n\n"
+                            f"❓ <i>{question}</i>\n\n"
+                            f"{answer}\n\n"
+                            f"💡 <i>You can ask me more questions about this image!</i>"
+                        )
+                else:
+                    print("⚠️ Groq API key not configured, falling back to Gemini...")
+                    
+            except Exception as groq_error:
+                print(f"⚠️ Groq error: {groq_error}")
+                print("   Falling back to Gemini Vision...")
+            
+            # Fallback to Gemini Vision
             from google import genai
             from google.genai import types
             from PIL import Image
@@ -1525,14 +1602,14 @@ Answer (in simple, clear English):"""
             # Configure Gemini
             api_key = os.getenv('GEMINI_API_KEY')
             if not api_key:
-                return "⚠️ Gemini API key not configured. Cannot analyze images."
+                return "⚠️ Both Groq and Gemini API keys not configured. Cannot analyze images."
             
+            print("✨ Using Gemini Vision (fallback)...")
             client = genai.Client(api_key=api_key)
             
             # Load image
             img = Image.open(file_path)
             
-            # Use the same prompt style as document summarizer with language instruction
             prompt = f"""{question}
 
 IMPORTANT - Write like you're explaining to a 10-year-old child:
@@ -1563,8 +1640,9 @@ Answer in {language_name}:"""
                 # Clean up any markdown formatting
                 answer = answer.replace('**', '').replace('*', '').replace('__', '')
                 
+                print("✅ Gemini image analysis successful")
                 return (
-                    f"🖼️ <b>Image Analysis</b>\n\n"
+                    f"🖼️ <b>Image Analysis (Gemini)</b>\n\n"
                     f"❓ <i>{question}</i>\n\n"
                     f"{answer}\n\n"
                     f"💡 <i>You can ask me more questions about this image!</i>"
@@ -1577,8 +1655,6 @@ Answer in {language_name}:"""
             import traceback
             traceback.print_exc()
             return "Sorry, I encountered an error while analyzing the image."
-            traceback.print_exc()
-            return "Sorry, I encountered an error while analyzing the image. Make sure Gemini API is configured."
 
 
 # Singleton instance
