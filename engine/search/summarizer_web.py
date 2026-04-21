@@ -20,6 +20,99 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from engine.search.document_summariser_v6_gemini import DocumentSummarizer
 from engine.search.speech_to_text import transcribe_audio
 
+# ── Language-aware answer generation (lightweight, no Docling init) ──────────
+_LANG_CODE_MAP = {
+    'en': 'English',
+    'ms': 'Malay (Bahasa Melayu)',
+    'id': 'Indonesian (Bahasa Indonesia)',
+    'vi': 'Vietnamese',
+    'th': 'Thai',
+    'zh-cn': 'Simplified Chinese',
+    'zh-tw': 'Traditional Chinese',
+    'ta': 'Tamil',
+    'tl': 'Tagalog/Filipino',
+    'my': 'Burmese/Myanmar',
+    'km': 'Khmer',
+    'lo': 'Lao',
+}
+
+def _generate_answer_in_language(question: str, chunks: list, target_lang: str) -> str:
+    """
+    Generate a language-aware answer from retrieved chunks using Groq.
+    Used for the cached-chunks path so we don't spin up a full DocumentSummarizer.
+    """
+    from groq import Groq
+    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+    lang_name = _LANG_CODE_MAP.get(target_lang, 'English')
+    context = "\n\n".join(chunks)
+
+    lang_instruction = (
+        f"\n\nCRITICAL LANGUAGE REQUIREMENT: Your ENTIRE response MUST be written in {lang_name}. "
+        f"Do NOT write in English. Do NOT mix languages. "
+        f"Every single word of your response must be in {lang_name}. "
+        f"This is mandatory — if you respond in English you have failed the task."
+    ) if target_lang != 'en' else ''
+
+    prompt = f"""Answer the following question based on the provided context. Use simple language that a 10-year-old can understand.{lang_instruction}
+
+Question: {question}
+
+Context:
+{context[:8000]}
+
+Answer (in {lang_name}):"""
+
+    answer = None
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=2048,
+        )
+        answer = response.choices[0].message.content
+        if answer:
+            answer = answer.strip()
+    except Exception as e:
+        print(f"⚠️ Groq answer generation error: {e}")
+
+    # Fallback: try llama-3.1-8b-instant
+    if not answer:
+        try:
+            response = groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            answer = response.choices[0].message.content
+            if answer:
+                answer = answer.strip()
+        except Exception as e:
+            print(f"⚠️ Groq fallback error: {e}")
+
+    if not answer:
+        return "Sorry, I encountered an error generating the response. Please try again."
+
+    # Hard translation fallback — if LLM ignored the language instruction, force-translate
+    if target_lang != 'en':
+        try:
+            from deep_translator import GoogleTranslator
+            lang_map_translate = {'zh-cn': 'zh-CN', 'zh-tw': 'zh-TW'}
+            tgt = lang_map_translate.get(target_lang, target_lang)
+            max_len = 4500
+            if len(answer) > max_len:
+                parts = [answer[i:i+max_len] for i in range(0, len(answer), max_len)]
+                answer = ' '.join(GoogleTranslator(source='auto', target=tgt).translate(p) for p in parts)
+            else:
+                answer = GoogleTranslator(source='auto', target=tgt).translate(answer)
+            print(f"✅ Translation fallback applied → {target_lang}")
+        except Exception as e:
+            print(f"⚠️ Translation fallback error: {e}")
+
+    return answer
+
 # Database imports
 try:
     from engine.database.auth_handler import AuthHandler
@@ -296,8 +389,7 @@ def chat():
         
         try:
             from engine.speech.embedding import query_from_chroma
-            from engine.speech.response_gen import generate_final_response, get_dialect_from_language
-            
+
             # Query ChromaDB with embedded question
             # min_similarity=0.4 means we need at least 40% similarity
             # Filter by user's country to prevent wrong-country answers
@@ -326,19 +418,9 @@ def chat():
         
         if relevant_chunks and len(relevant_chunks) >= 3:
             print(f"\n🤖 [RAG Step 4-5] Generating response from Vector Database...")
-            
-            # Map language code to full language name
-            lang_map = {
-                'en': 'English', 'ms': 'Bahasa Melayu', 'id': 'Bahasa Indonesia',
-                'th': 'Thai', 'vi': 'Vietnamese', 'tl': 'Filipino/Tagalog',
-                'my': 'Burmese', 'km': 'Khmer', 'lo': 'Lao', 'ta': 'Tamil',
-                'zh-cn': 'Chinese (Simplified)'
-            }
-            language_name = lang_map.get(target_lang, 'English')
-            dialect = get_dialect_from_language(language_name)
-            
-            # Generate answer from Vector Database data
-            cached_answer = generate_final_response(message, relevant_chunks, dialect)
+
+            # Use language-aware generation so target_lang is respected
+            cached_answer = _generate_answer_in_language(message, relevant_chunks, target_lang)
             print("✅ Response generated from cached Vector Database data")
             
             result = {

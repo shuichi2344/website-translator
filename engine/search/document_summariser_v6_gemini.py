@@ -12,10 +12,14 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
 from dotenv import load_dotenv
+from groq import Groq
 from engine.gpu_accelerator import load_sentence_transformer, get_optimal_batch_size, is_gpu_available
 
 warnings.filterwarnings('ignore')
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=True)
+
+# Groq client (shared across all DocumentSummarizer instances)
+_groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 class DocumentSummarizer:
@@ -736,25 +740,34 @@ Extract all text now:"""
         return self._summarize_long_document(text, num_sentences)
     
     def _lang_instruction(self):
-        """Returns a language instruction string for Gemini prompts."""
+        """Returns a language instruction string for LLM prompts."""
         lang_map = {
             'en': 'English',
-            'ms': 'Malay (Bahasa Melayu)', 'id': 'Indonesian (Bahasa Indonesia)',
-            'vi': 'Vietnamese', 'th': 'Thai', 'zh-cn': 'Simplified Chinese',
-            'zh-tw': 'Traditional Chinese', 'ta': 'Tamil', 'tl': 'Tagalog/Filipino',
-            'my': 'Burmese/Myanmar', 'km': 'Khmer', 'lo': 'Lao',
+            'ms': 'Malay (Bahasa Melayu)',
+            'id': 'Indonesian (Bahasa Indonesia)',
+            'vi': 'Vietnamese',
+            'th': 'Thai',
+            'zh-cn': 'Simplified Chinese',
+            'zh-tw': 'Traditional Chinese',
+            'ta': 'Tamil',
+            'tl': 'Tagalog/Filipino',
+            'my': 'Burmese/Myanmar',
+            'km': 'Khmer',
+            'lo': 'Lao',
         }
         lang_name = lang_map.get(self.target_lang, 'English')
-        return f"\n- IMPORTANT: You MUST write your entire response in {lang_name}, regardless of the language of the source text."
+        if self.target_lang == 'en':
+            return ''
+        return (
+            f"\n\nCRITICAL LANGUAGE REQUIREMENT: Your ENTIRE response MUST be written in {lang_name}. "
+            f"Do NOT write in English. Do NOT mix languages. "
+            f"Every single word of your response must be in {lang_name}. "
+            f"This is mandatory — if you respond in English you have failed the task."
+        )
 
     def _summarize_chunk(self, text, num_sentences=5):
-        """Summarize a single chunk of text using Gemini"""
+        """Summarize a single chunk of text using Groq"""
         try:
-            from google import genai
-            from google.genai import types
-
-            client = genai.Client(api_key=self.gemini_api_key)
-
             lang_instruction = self._lang_instruction()
 
             prompt = f"""Read the following text and explain the main ideas in {num_sentences} simple bullet points.
@@ -774,32 +787,23 @@ Text to summarize:
 {text[:50000]}
 
 Simple summary (write exactly {num_sentences} SHORT, SIMPLE bullet points):"""
-            
-            response = client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.4,
-                    top_p=0.95,
-                    max_output_tokens=4096,
-                )
+
+            response = _groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=1024,
             )
-            
-            if response and response.text:
-                summary = response.text.strip()
-                if summary:
-                    summary = self._clean_bullet_format(summary)
-                    return summary
-            
+
+            summary = response.choices[0].message.content
+            if summary:
+                summary = self._clean_bullet_format(summary.strip())
+                return summary
+
             return None
-                
-        except ImportError:
-            print("⚠️  google-genai package not installed")
-            print("   Install with: pip install google-genai")
-            print("   Falling back to Ollama (llama3.2)...")
-            return self._summarize_with_ollama(text, num_sentences)
+
         except Exception as e:
-            print(f"⚠️  Gemini API error: {e}")
+            print(f"⚠️  Groq summarize error: {e}")
             print("   Falling back to Ollama (llama3.2)...")
             return self._summarize_with_ollama(text, num_sentences)
     
@@ -1301,15 +1305,10 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
         
         print(f"   Using top 3 most relevant chunks as context")
         
-        # Generate answer using Gemini, fall back to Ollama
+        # Generate answer using Groq, fall back to Ollama
         answer = None
         lang_instruction = self._lang_instruction()
         try:
-            from google import genai
-            from google.genai import types
-
-            client = genai.Client(api_key=self.gemini_api_key)
-
             prompt = f"""Answer the following question based on the provided context. Use simple language that a 10-year-old can understand.{lang_instruction}
 
                     Question: {question}
@@ -1319,22 +1318,20 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
 
                     Answer (in simple, clear language, - Do NOT include titles, headers, or bold text (**) ):"""
 
-            response = client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.3,
-                    top_p=0.95,
-                    max_output_tokens=2048,
-                )
+            response = _groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=2048,
             )
 
-            if response and response.text:
-                answer = response.text.strip()
+            answer = response.choices[0].message.content
+            if answer:
+                answer = answer.strip()
                 print(f"✅ Answer generated successfully")
 
         except Exception as e:
-            print(f"⚠️  Gemini Q&A error: {e}")
+            print(f"⚠️  Groq Q&A error: {e}")
             print("   Falling back to Ollama (llama3.2)...")
 
         if not answer:
@@ -1363,7 +1360,8 @@ Simple final summary (write exactly {num_sentences} SHORT, SIMPLE bullet points)
         """Fallback Q&A using Ollama llama3.2"""
         print(f"\n🦙 Using Ollama (llama3.2) for Q&A...")
         try:
-            prompt = f"""Answer the following question based on the provided context. Use simple language that a 10-year-old can understand.
+            lang_instruction = self._lang_instruction()
+            prompt = f"""Answer the following question based on the provided context. Use simple language that a 10-year-old can understand.{lang_instruction}
 
 Question: {question}
 

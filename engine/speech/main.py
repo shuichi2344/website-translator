@@ -207,7 +207,26 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
             "sources": links if links else []
         }
 
+    # Map target_dialect back to a clean language name for TTS voice selection.
+    # target_dialect may be a full string like "Bahasa Melayu (Malaysian Malay)" —
+    # we need the simple key that language_voice_mapping understands.
+    _DIALECT_TO_LANG = {
+        "Standard English": "English",
+        "Bahasa Melayu (Malaysian Malay)": "Bahasa Melayu",
+        "Bahasa Indonesia (Indonesian)": "Bahasa Indonesia",
+        "Thai": "Thai",
+        "Vietnamese": "Vietnamese",
+        "Filipino/Tagalog": "Filipino/Tagalog",
+        "Burmese": "Burmese",
+        "Khmer (Cambodian)": "Khmer",
+        "Lao": "Lao",
+        "Simplified Chinese": "Chinese (Simplified)",
+        "Tamil": "Tamil",
+    }
+    response_language = _DIALECT_TO_LANG.get(target_dialect, detected_language)
+
     return {
         "answer": final_answer,
-        "sources": sources if sources else []
+        "sources": sources if sources else [],
+        "language": response_language,
     }

@@ -106,8 +106,21 @@ async def speak_answer(text: str, country_code: str = "DEFAULT", lang_override: 
     if isinstance(country_voices, str):
         voice = country_voices
     else:
-        # Look for the language, then English in that country, then global default string
-        voice = country_voices.get(lang, country_voices.get("en", VOICE_MATRIX["DEFAULT"]))
+        # Look for the language in the country matrix first.
+        # If not found, use language_voice_mapping as a reliable fallback
+        # (avoids defaulting to English when the language just isn't in the country matrix).
+        voice = country_voices.get(lang)
+        if not voice:
+            from engine.speech.language_voice_mapping import get_voices_for_language
+            _ISO_TO_LANG = {
+                "ms": "Bahasa Melayu", "id": "Bahasa Indonesia", "th": "Thai",
+                "vi": "Vietnamese", "tl": "Filipino/Tagalog", "zh": "Chinese (Simplified)",
+                "ta": "Tamil", "my": "Burmese", "km": "Khmer", "lo": "Lao",
+                "en": "English",
+            }
+            lang_name = _ISO_TO_LANG.get(lang, "English")
+            mapped_voices = get_voices_for_language(lang_name)
+            voice = mapped_voices[0] if mapped_voices else VOICE_MATRIX["DEFAULT"]
 
     print(f"Using voice: {voice}")
 
@@ -136,9 +149,9 @@ if __name__ == "__main__":
     pass
     # # --- MALAYSIA (MY) CONTEXT ---
 
-    # # 1. Local English (Should use en-SG-Luna per your preference)
-    # t1 = "Don't forget to renew your road tax before the end of the month, okay?"
-    # asyncio.run(speak_answer(t1, "MY"))
+    # 1. Local English (Should use en-SG-Luna per your preference)
+    t1 = "Fines for loss or damage of passport, got lah"
+    asyncio.run(speak_answer(t1, "MY"))
 
     # # 2. Formal Malay (Should use ms-MY-Yasmin)
     # t2 = "Sila pastikan semua dokumen asal dibawa bersama semasa temu janji di pejabat imigresen."

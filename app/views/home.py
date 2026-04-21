@@ -893,7 +893,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     _ui_call(_remove_status)
                     # Use bot bubble with TTS support
                     label = "🖼️ Image Summary" if _is_image else "📄 Document Summary"
-                    _add_bubble_safe(f"{label}  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot")
+                    _add_bubble_safe(f"{label}  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot", lang=doc_lang_dropdown.value or "English")
                     
                     # Save to database
                     rag = get_rag_instance()
@@ -986,7 +986,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                             chat_list.controls.remove(status_bubble)
                     _ui_call(_remove_status)
                     # Use bot bubble with TTS support instead of result
-                    _add_bubble_safe(result.get("summary", ""), "bot")
+                    _add_bubble_safe(result.get("summary", ""), "bot", lang=doc_lang_dropdown.value or "English")
                     
                     # Save to database
                     rag = get_rag_instance()
@@ -1057,7 +1057,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                             chat_list.controls.remove(status_bubble)
                     _ui_call(_remove_status)
                     # Use bot bubble with TTS support
-                    _add_bubble_safe(f"🌐 Website Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot")
+                    _add_bubble_safe(f"🌐 Website Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot", lang=web_lang_dropdown.value or "English")
                     
                     # Save to database
                     rag = get_rag_instance()
@@ -1150,7 +1150,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                             chat_list.controls.remove(status_bubble)
                     _ui_call(_remove_status)
                     # Use bot bubble with TTS support instead of result
-                    _add_bubble_safe(result.get("summary", ""), "bot")
+                    _add_bubble_safe(result.get("summary", ""), "bot", lang=web_lang_dropdown.value or "English")
                     
                     # Save to database
                     rag = get_rag_instance()
@@ -1534,7 +1534,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         auto_scroll=True,
     )
 
-    def _add_bubble(text: str, role: str = "bot", sources: list = None):
+    def _add_bubble(text: str, role: str = "bot", sources: list = None, lang: str = None):
         """
         role: "user" | "bot" | "status" | "result"
         result = right-aligned bot response (summarizer/Q&A output)
@@ -1677,15 +1677,42 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         
                         # Generate audio using speak_answer with country-aware voice
                         async def generate_audio():
-                            from engine.speech.text_to_speech import VOICE_MATRIX, get_lang
+                            from engine.speech.text_to_speech import VOICE_MATRIX
+                            from engine.speech.language_voice_mapping import get_voices_for_language
                             country_code = _COUNTRY_CODE_MAP.get(state.country, "DEFAULT")
-                            lang = get_lang(_tts_text)
+                            _LANG_TO_ISO = {
+                                "English": "en",
+                                "Bahasa Melayu": "ms", "Malay": "ms",
+                                "Bahasa Indonesia": "id", "Indonesian": "id",
+                                "Thai": "th",
+                                "Vietnamese": "vi",
+                                "Filipino/Tagalog": "tl", "Filipino": "tl", "Tagalog": "tl",
+                                "Chinese (Simplified)": "zh",
+                                "Tamil": "ta",
+                                "Burmese": "my",
+                                "Khmer": "km",
+                                "Lao": "lo",
+                            }
+                            # Prefer the language the response was actually generated in (passed via
+                            # lang param), fall back to the user's profile language.
+                            _effective_lang = lang or state.language
+                            lang_iso = _LANG_TO_ISO.get(_effective_lang, "en")
                             country_voices = VOICE_MATRIX.get(country_code, VOICE_MATRIX["DEFAULT"])
                             if isinstance(country_voices, str):
                                 voice = country_voices
                             else:
-                                voice = country_voices.get(lang, country_voices.get("en", VOICE_MATRIX["DEFAULT"]))
-                            print(f"🎤 Voice selected: {voice} (lang={lang})")
+                                voice = country_voices.get(lang_iso)
+                                if not voice:
+                                    # Country matrix doesn't have this language — use language_voice_mapping
+                                    _ISO_TO_LANG = {v: k for k, v in _LANG_TO_ISO.items() if k in [
+                                        "English", "Bahasa Melayu", "Bahasa Indonesia", "Thai",
+                                        "Vietnamese", "Filipino/Tagalog", "Chinese (Simplified)",
+                                        "Tamil", "Burmese", "Khmer", "Lao",
+                                    ]}
+                                    lang_name = _ISO_TO_LANG.get(lang_iso, "English")
+                                    mapped = get_voices_for_language(lang_name)
+                                    voice = mapped[0] if mapped else VOICE_MATRIX["DEFAULT"]
+                            print(f"🎤 Voice selected: {voice} (lang_iso={lang_iso}, effective_lang={_effective_lang})")
                             last_error = None
                             for v in [voice, "en-US-AriaNeural"]:
                                 try:
@@ -2441,7 +2468,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             # New format with answer and sources
             text = payload.get("answer", payload.get("summary", ""))
             sources = payload.get("sources", [])
-            _add_bubble(text, "bot", sources)
+            lang = payload.get("language")  # language the response was generated in
+            _add_bubble(text, "bot", sources, lang=lang)
         else:
             # Old format (string)
             _add_bubble(str(payload), "bot")
@@ -2458,9 +2486,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def _ui(fn):
         fn()  # Flet 0.19.0 — page.update() is thread-safe
 
-    def _add_bubble_safe(text: str, role: str = "bot", sources: list = None):
+    def _add_bubble_safe(text: str, role: str = "bot", sources: list = None, lang: str = None):
         def _do():
-            _add_bubble(text, role, sources)
+            _add_bubble(text, role, sources, lang=lang)
             page.update()
         _ui(_do)
 

@@ -16,6 +16,7 @@ beautifulsoup4
 requests
 
 # AI / LLM
+groq
 google-genai
 sentence-transformers
 huggingface-hub
