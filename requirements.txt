@@ -18,6 +18,7 @@ requests
 # AI / LLM
 groq
 google-genai
+groq  # Groq API for fast LLM inference
 sentence-transformers
 huggingface-hub
 transformers
