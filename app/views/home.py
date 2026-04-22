@@ -212,34 +212,6 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         "ஆம்", "சரி",
     )
 
-    doc_lang_dropdown = ft.Dropdown(
-        label="Target Language",
-        hint_text="Select output language",
-        options=[ft.dropdown.Option(lang) for lang in ASEAN_LANGUAGES],
-        value="English",
-        border_color=accent,
-        border_radius=8,
-        border_width=2,
-        bgcolor=state.surface_color(),
-        color=state.text_color(),
-        label_style=ft.TextStyle(color=accent, size=state.font_sp() - 1),
-        text_style=ft.TextStyle(color=state.text_color(), size=state.font_sp()),
-    )
-
-    web_lang_dropdown = ft.Dropdown(
-        label="Target Language",
-        hint_text="Select output language",
-        options=[ft.dropdown.Option(lang) for lang in ASEAN_LANGUAGES],
-        value="English",
-        border_color=accent,
-        border_radius=8,
-        border_width=2,
-        bgcolor=state.surface_color(),
-        color=state.text_color(),
-        label_style=ft.TextStyle(color=accent, size=state.font_sp() - 1),
-        text_style=ft.TextStyle(color=state.text_color(), size=state.font_sp()),
-    )
-
     # ------------------------------------------------------------------ #
     #  Notes helper — info icon with tooltip on hover                    #
     # ------------------------------------------------------------------ #
@@ -420,7 +392,6 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 ),
                 ft.Row([drop_zone]),
                 file_error_text,
-                doc_lang_dropdown,
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
@@ -469,7 +440,6 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 ),
                 url_field,
                 url_error_text,
-                web_lang_dropdown,
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=8,
@@ -844,7 +814,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
     def on_doc_summarise(_):
         filepath = selected_file[0]
-        lang_code = LANG_CODE_MAP.get(doc_lang_dropdown.value or "English", "en")
+        lang_code = LANG_CODE_MAP.get(state.language, "en")
         
         # Detect if the selected file is an image
         _img_exts = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".webp"}
@@ -893,7 +863,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     _ui_call(_remove_status)
                     # Use bot bubble with TTS support
                     label = "🖼️ Image Summary" if _is_image else "📄 Document Summary"
-                    _add_bubble_safe(f"{label}  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot", lang=doc_lang_dropdown.value or "English")
+                    _add_bubble_safe(f"{label}  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot", lang=state.language)
                     
                     # Save to database
                     rag = get_rag_instance()
@@ -922,7 +892,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def on_doc_ask(_):
         question = (chat_field.value or "").strip()
         filepath = selected_file[0]
-        lang_code = LANG_CODE_MAP.get(doc_lang_dropdown.value or "English", "en")
+        lang_code = LANG_CODE_MAP.get(state.language, "en")
 
         if not question:
             return  # Silently ignore if no question
@@ -986,7 +956,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                             chat_list.controls.remove(status_bubble)
                     _ui_call(_remove_status)
                     # Use bot bubble with TTS support instead of result
-                    _add_bubble_safe(result.get("summary", ""), "bot", lang=doc_lang_dropdown.value or "English")
+                    _add_bubble_safe(result.get("summary", ""), "bot", lang=state.language)
                     
                     # Save to database
                     rag = get_rag_instance()
@@ -1014,7 +984,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
 
     def on_web_summarise(_):
         url = url_field.value or ""
-        lang_code = LANG_CODE_MAP.get(web_lang_dropdown.value or "English", "en")
+        lang_code = LANG_CODE_MAP.get(state.language, "en")
         
         # Hide the website panel immediately
         set_mode(None)
@@ -1057,7 +1027,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                             chat_list.controls.remove(status_bubble)
                     _ui_call(_remove_status)
                     # Use bot bubble with TTS support
-                    _add_bubble_safe(f"🌐 Website Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot", lang=web_lang_dropdown.value or "English")
+                    _add_bubble_safe(f"🌐 Website Summary  •  {orig:,}→{summ:,} words ({reduction}% reduction)\n\n{summary}", "bot", lang=state.language)
                     
                     # Save to database
                     rag = get_rag_instance()
@@ -1086,7 +1056,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     def on_web_ask(_):
         question = (chat_field.value or "").strip()
         url = url_field.value or ""
-        lang_code = LANG_CODE_MAP.get(web_lang_dropdown.value or "English", "en")
+        lang_code = LANG_CODE_MAP.get(state.language, "en")
 
         if not question:
             return  # Silently ignore if no question
@@ -1150,7 +1120,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                             chat_list.controls.remove(status_bubble)
                     _ui_call(_remove_status)
                     # Use bot bubble with TTS support instead of result
-                    _add_bubble_safe(result.get("summary", ""), "bot", lang=web_lang_dropdown.value or "English")
+                    _add_bubble_safe(result.get("summary", ""), "bot", lang=state.language)
                     
                     # Save to database
                     rag = get_rag_instance()
