@@ -204,7 +204,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     # ------------------------------------------------------------------ #
 
     ASEAN_LANGUAGES = [
-        "English", "Bahasa Melayu", "Bahasa Indonesia", "Thai", "Vietnamese",
+        "English", "Bahasa Melayu", "Bahasa Indonesia", "Sundanese", "Thai", "Vietnamese",
         "Filipino/Tagalog", "Burmese", "Khmer", "Lao", "Tamil", "Chinese (Simplified)",
     ]
 

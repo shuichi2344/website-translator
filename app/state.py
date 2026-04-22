@@ -14,6 +14,7 @@ ALLOWED_LANGUAGES = [
     "English",
     "Bahasa Melayu",
     "Bahasa Indonesia",
+    "Sundanese",
     "Thai",
     "Vietnamese",
     "Filipino/Tagalog",

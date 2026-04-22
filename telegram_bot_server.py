@@ -28,7 +28,7 @@ COUNTRIES = [
 
 # Supported Languages (matches Flet app)
 LANGUAGES = [
-    "English", "Bahasa Melayu", "Bahasa Indonesia", "Thai", "Vietnamese",
+    "English", "Bahasa Melayu", "Bahasa Indonesia", "Sundanese", "Thai", "Vietnamese",
     "Filipino/Tagalog", "Burmese", "Khmer", "Lao", "Chinese (Simplified)", "Tamil"
 ]
 
@@ -250,7 +250,7 @@ async def help_command(update: Update, context):
         "3. Provide you with a clear answer\n"
         "4. Include reference links\n\n"
         "<b>Supported languages:</b>\n"
-        "English, Bahasa Melayu, Bahasa Indonesia, Thai, Vietnamese, "
+        "English, Bahasa Melayu, Bahasa Indonesia, Sundanese, Thai, Vietnamese, "
         "Filipino/Tagalog, Burmese, Khmer, Lao, Chinese (Simplified), Tamil\n\n"
         "<b>Example questions:</b>\n"
         "• How to renew my passport?\n"

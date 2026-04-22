@@ -13,6 +13,7 @@ LANGUAGE_DIALECT_MAP = {
     "English": "Standard English",
     "Bahasa Melayu": "Bahasa Melayu (Malaysian Malay)",
     "Bahasa Indonesia": "Bahasa Indonesia (Indonesian)",
+    "Sundanese": "Sundanese (Basa Sunda)",
     "Thai": "Thai",
     "Vietnamese": "Vietnamese",
     "Filipino/Tagalog": "Filipino/Tagalog",

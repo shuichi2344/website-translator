@@ -22,7 +22,7 @@ except Exception as e:
     DB_AVAILABLE = False
 
 SUPPORTED_LANGUAGES = [
-    "English", "Bahasa Melayu", "Bahasa Indonesia", "Thai", "Vietnamese",
+    "English", "Bahasa Melayu", "Bahasa Indonesia", "Sundanese", "Thai", "Vietnamese",
     "Filipino/Tagalog", "Burmese", "Khmer", "Lao", "Chinese (Simplified)", "Tamil"
 ]
 

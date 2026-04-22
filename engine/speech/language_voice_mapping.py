@@ -19,6 +19,10 @@ LANGUAGE_VOICE_MAP = {
         "id-ID-GadisNeural",
         "id-ID-ArdiNeural"
     ],
+    "Sundanese": [
+        "su-ID-TutiNeural",  # Sundanese voice (if available)
+        "id-ID-GadisNeural"  # Fallback to Indonesian
+    ],
     "Thai": [
         "th-TH-PremwadeeNeural",
         "th-TH-NiwatNeural"

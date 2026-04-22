@@ -2,14 +2,14 @@
 
 A multilingual AI assistant that helps users access government information across ASEAN countries. Available as a **Flet desktop app**, **Chrome/Edge browser extension**, and **Telegram bot**.
 
-Bridge simplifies access to government services by providing AI-powered answers to questions about passports, visas, permits, and official documents in 11 languages. Whether you're renewing your passport, applying for a visa, or navigating government forms, Bridge fetches real-time information from official sources and delivers clear, contextual answers.
+Bridge simplifies access to government services by providing AI-powered answers to questions about passports, visas, permits, and official documents in 12 languages. Whether you're renewing your passport, applying for a visa, or navigating government forms, Bridge fetches real-time information from official sources and delivers clear, contextual answers.
 
 ---
 
 ## Key Features
 
 ### Multilingual Support
-- **11 ASEAN Languages**: English, Bahasa Melayu, Bahasa Indonesia, Thai, Vietnamese, Filipino/Tagalog, Burmese, Khmer, Lao, Chinese (Simplified), Tamil
+- **12 ASEAN Languages**: English, Bahasa Melayu, Bahasa Indonesia, Sundanese, Thai, Vietnamese, Filipino/Tagalog, Burmese, Khmer, Lao, Chinese (Simplified), Tamil
 - **Dialect Recognition**: Understands Manglish, Singlish, Taglish, and other regional variations
 - **Auto-Translation**: Seamlessly translates between languages for cross-border queries
 
