@@ -30,6 +30,7 @@ def get_country_suffix(country_name):
 def find_specific_gov_links(query, country_suffix):
     """
     Returns a list of specific deep links from government sites using SerpAPI.
+    Retries up to 3 times on timeout/network errors before giving up.
     """
     api_key = os.getenv("SERP_API_KEY")
 
@@ -39,54 +40,61 @@ def find_specific_gov_links(query, country_suffix):
 
     search_query = f"{query} site:.gov.{country_suffix}"
 
-    try:
-        # SerpAPI endpoint (not Serper.dev)
-        response = requests.get(
-            "https://serpapi.com/search",
-            params={
-                "q": search_query,
-                "api_key": api_key,
-                "engine": "google",
-                "gl": country_suffix,
-                "hl": "en",
-                "num": 10
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        data = response.json()
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            if attempt > 1:
+                import time
+                print(f"🔄 SerpAPI retry {attempt}/{max_attempts}...")
+                time.sleep(2 * (attempt - 1))
 
-        organic = data.get("organic_results", [])
-        if not organic:
-            print("⚠️  No results found.")
-            return []
+            response = requests.get(
+                "https://serpapi.com/search",
+                params={
+                    "q": search_query,
+                    "api_key": api_key,
+                    "engine": "google",
+                    "gl": country_suffix,
+                    "hl": "en",
+                    "num": 10
+                },
+                timeout=20,
+            )
+            response.raise_for_status()
+            data = response.json()
 
-        links = []
+            organic = data.get("organic_results", [])
+            if not organic:
+                print("⚠️  No results found.")
+                return []
 
-        # Grab sitelinks from top result if available
-        if organic:
+            links = []
+
+            # Grab sitelinks from top result if available
             top = organic[0]
             for sl in top.get("sitelinks", {}).get("inline", []):
                 link = sl.get("link")
                 if link:
                     links.append(link)
 
-        # Add main organic links
-        for res in organic[:5]:
-            link = res.get("link")
-            if link:
-                links.append(link)
+            # Add main organic links
+            for res in organic[:5]:
+                link = res.get("link")
+                if link:
+                    links.append(link)
 
-        # Deduplicate
-        unique_links = list(dict.fromkeys(links))
-        print(f"✅ Found {len(unique_links)} government links")
-        return unique_links
+            # Deduplicate and return on first success
+            unique_links = list(dict.fromkeys(links))
+            print(f"✅ Found {len(unique_links)} government links")
+            return unique_links
 
-    except Exception as e:
-        print(f"⚠️  Search error: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
+        except Exception as e:
+            print(f"⚠️  Search error (attempt {attempt}/{max_attempts}): {e}")
+            if attempt == max_attempts:
+                import traceback
+                traceback.print_exc()
+
+    return []
 
 if __name__ == "__main__":
     print("=== Government Mapping Test ===\n")

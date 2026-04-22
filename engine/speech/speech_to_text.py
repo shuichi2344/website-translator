@@ -229,7 +229,9 @@ class PTTSession:
 
         # 1. TRANSCRIBE
         asr = get_asr_pipe()
-        res = asr(audio_np, generate_kwargs={"task": "transcribe", "language": "english", "do_sample": False})
+        # Do NOT force language — let Whisper auto-detect so Malay, Thai, etc. are
+        # transcribed in their actual language instead of being translated to English.
+        res = asr(audio_np, generate_kwargs={"task": "transcribe", "do_sample": False})
         raw_text = res["text"].strip()
         
         print(f"Raw Transcription: {raw_text}")
@@ -251,7 +253,8 @@ class PTTSession:
         self.results = {
             "dialect": self.dialect_data,
             "question": self.question_data,
-            "query": self.query_data
+            "query": self.query_data,
+            "transcript": raw_text,   # original transcribed text in user's language
         }
 
 # ==========================

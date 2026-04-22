@@ -82,7 +82,12 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     if state.session is None:
         create_session, _, _, _, _ = _get_preloaded_modules()
         if create_session:
-            state.session, state.stream = create_session()
+            try:
+                state.session, state.stream = create_session()
+            except Exception as e:
+                print(f"⚠️ Could not initialize voice session (Whisper unavailable): {e}")
+                state.session = None
+                state.stream = None
     
     # Initialize or get conversation
     from datetime import datetime
@@ -121,9 +126,17 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
     is_resizing: list = [False]  # Track if user is resizing sidebar
 
     LANG_CODE_MAP = {
-        "English": "en", "Malay": "ms", "Indonesian": "id", "Thai": "th",
-        "Vietnamese": "vi", "Filipino": "tl", "Burmese": "my", "Khmer": "km",
-        "Lao": "lo", "Tamil": "ta", "Chinese (Simplified)": "zh-cn",
+        "English": "en",
+        "Bahasa Melayu": "ms",
+        "Bahasa Indonesia": "id",
+        "Thai": "th",
+        "Vietnamese": "vi",
+        "Filipino/Tagalog": "tl",
+        "Burmese": "my",
+        "Khmer": "km",
+        "Lao": "lo",
+        "Tamil": "ta",
+        "Chinese (Simplified)": "zh-cn",
     }
 
     accent = ACCENT_DARK if state.theme_mode == "Dark" else ACCENT
@@ -1201,7 +1214,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
         visible=False,
     )
 
-    _PANEL_OPEN_HEIGHT = 300  # max height when panel is open
+    _PANEL_OPEN_HEIGHT = 240  # height for document/image panel (drop zone + button)
 
     # ------------------------------------------------------------------ #
     #  set_mode (Task 3.3)                                                #
@@ -1230,7 +1243,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             if mode == "form":
                 panel_container.height = 120
             elif mode == "web":
-                panel_container.height = 240
+                panel_container.height = 180
             else:
                 panel_container.height = _PANEL_OPEN_HEIGHT
         else:
@@ -2256,8 +2269,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 results = session.results
 
                 dialect = results.get("dialect")
-                question = results.get("question")
+                question = results.get("question")   # English-normalized (used as query fallback)
                 query = results.get("query")
+                transcript = results.get("transcript") or question  # original language text
 
                 # Add status indicator
                 status_bubble = [None]
@@ -2269,9 +2283,9 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                     mic_circle.gradient = None
                     mic_circle.bgcolor = ft.colors.GREY_400
                     
-                    # Show transcript as user bubble
-                    if question:
-                        _add_bubble(question, "user")
+                    # Show original transcript (user's language) in the bubble
+                    if transcript:
+                        _add_bubble(transcript, "user")
                     # Add status indicator with real-time updates
                     status_bubble[0] = _add_bubble("🔍 Searching knowledge base...", "status")
                     page.update()
@@ -2319,8 +2333,8 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                 
                 response = process_voice_result(
                     dialect=dialect,
-                    question=question,
-                    query=query,
+                    question=transcript,  # original language — drives response language detection
+                    query=query,          # English keywords — drives SerpAPI search
                     country=state.country,
                     language=state.language
                 )
@@ -2342,7 +2356,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                         _show_result_card(response)
 
                     print("Dialect:", dialect)
-                    print("Question:", question)
+                    print("Transcript:", transcript)
                     print("Query:", query)
                     print("Response:", response)
 
@@ -3979,7 +3993,7 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
             ft.Row([
                 # Sidebar with resize handle
                 sidebar_with_handle,
-                
+
                 # Main content
                 ft.Container(
                     expand=True,
@@ -4008,6 +4022,16 @@ def build_home_view(page: ft.Page, state: AppState) -> ft.View:
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 spacing=0,
+                            ),
+                            ft.Container(
+                                content=ft.Text(
+                                    "Bridge is an AI and can make mistakes.",
+                                    size=state.font_sp() - 4,
+                                    color=ft.colors.with_opacity(0.45, state.text_color()),
+                                    text_align=ft.TextAlign.CENTER,
+                                ),
+                                alignment=ft.alignment.center,
+                                padding=ft.padding.only(top=2, bottom=4),
                             ),
                         ],
                         expand=True,

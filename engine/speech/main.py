@@ -25,30 +25,18 @@ def process_voice_result(dialect, question, query, country="Malaysia", language=
         country: User's selected country (for government sources)
         language: User's selected language (for response)
     """
-    # Detect language from the actual user input — overrides profile setting.
-    # Uses fast_langdetect only (no keyword spotting for English — too many false positives).
-    detected_language = language  # fallback to profile setting
-    _input_text = (question or "").strip()
-    if _input_text:
-        try:
-            from fast_langdetect import detect as _fld
-            _res = _fld(_input_text)
-            _iso = (_res[0].get("lang") if isinstance(_res, list) else _res.get("lang", "en")).lower()
-            _ISO_MAP = {
-                "ms": "Bahasa Melayu", "id": "Bahasa Indonesia", "th": "Thai",
-                "vi": "Vietnamese", "tl": "Filipino/Tagalog", "fil": "Filipino/Tagalog",
-                "zh": "Chinese (Simplified)", "ta": "Tamil", "my": "Burmese",
-                "km": "Khmer", "lo": "Lao", "en": "English",
-            }
-            detected_language = _ISO_MAP.get(_iso, language)
-            print(f"[main] Detected language: {_iso} -> {detected_language}")
-        except Exception as _e:
-            print(f"[main] Language detection failed: {_e}")
+    # Use the profile language as the authoritative target language.
+    # Do NOT override it with fast_langdetect — the user explicitly set their
+    # language preference and that must be respected regardless of what language
+    # they typed/spoke the question in.
+    detected_language = language
+    print(f"[main] Using profile language: {detected_language}")
 
     target_dialect = get_dialect_from_language(detected_language)
 
-    # If Sailor2 detected a specific dialect (Singlish, Manglish, etc.) that the
-    # language detector can't capture (it only sees ISO codes), prefer that.
+    # Only let Sailor2 override if it detected a genuine mixed dialect
+    # (Manglish, Singlish, etc.) that has no ISO language code.
+    # Never let it override a clean language like Malay → English.
     _SAILOR2_DIALECTS = {
         "Manglish", "Singlish", "Hokkien", "Cantonese", "Taglish", "Thai-English",
         "Manglish+English", "Singlish+English", "English+Manglish", "English+Singlish",

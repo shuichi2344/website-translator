@@ -158,22 +158,21 @@ def generate_final_response(user_question, relevant_chunks, dialect):
         ollama_prompt = f"""You are the ASEAN Official Digital Assistant.
 Answer the user's question based ONLY on the provided government information.
 
+TARGET LANGUAGE: {dialect}
 USER QUESTION: {user_question}
 
 GOVERNMENT INFORMATION:
 {context}
 
-IMPORTANT - Write in simple, clear English:
-- Use everyday words that kids understand (avoid technical jargon)
-- Keep sentences simple for understanding
-- Focus on the MAIN IDEAS only - skip minor details
+IMPORTANT:
+- Respond ENTIRELY in {dialect}. Do NOT write in English unless {dialect} is English.
+- Use everyday words (5th-grade reading level).
+- Keep sentences simple and short.
 - Use bullet points and numbering.
-- NO WEBSITES OR URLS: Do not mention any URLs
-- STOP when done - no polite closings
-- Automatically replace complex legal or medical jargon with simple, everyday language (e.g., 5th-grade reading level). 
+- NO WEBSITES OR URLS.
+- STOP when done — no polite closings.
 
-
-Answer (in simple, clear English):"""
+Answer (in {dialect}):"""
 
         response = requests.post(
             "http://localhost:11434/api/generate",
