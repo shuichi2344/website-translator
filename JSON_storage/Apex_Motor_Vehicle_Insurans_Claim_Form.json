@@ -1,0 +1,241 @@
+{
+  "form_id": "MOTOR-VEHICLE-INSURANS-CLAIM-FORM-2026-V1",
+  "organization": "APEX ASSURANCE GROUP",
+  "sections": [
+    {
+      "section_name": "GENERAL",
+      "fields": [
+        {
+          "field_id": "apex_assurance_group",
+          "label": "APEX ASSURANCE GROUP",
+          "input_bbox": null,
+          "label_bbox": {
+            "l": 110.0,
+            "t": 759.924,
+            "r": 290.0,
+            "b": 743.274,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "your_trust,_our_commitment._",
+          "label": "Your Trust, Our Commitment. Since 1998.",
+          "input_bbox": null,
+          "label_bbox": {
+            "l": 110.0,
+            "t": 740.462,
+            "r": 285.5,
+            "b": 732.137,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        }
+      ]
+    },
+    {
+      "section_name": "MOTOR VEHICLE INSURANCE CLAIM FORM",
+      "fields": []
+    },
+    {
+      "section_name": "1. POLICYHOLDER DETAILS",
+      "fields": [
+        {
+          "field_id": "full_name:",
+          "label": "Full Name:",
+          "input_bbox": {
+            "l": 155.0,
+            "t": 615.0,
+            "r": 552.0,
+            "b": 617.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 624.18,
+            "r": 110.0,
+            "b": 614.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "policy_number:",
+          "label": "Policy Number:",
+          "input_bbox": {
+            "l": 155.0,
+            "t": 590.0,
+            "r": 552.0,
+            "b": 592.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 599.18,
+            "r": 130.0,
+            "b": 589.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "email_address:",
+          "label": "Email Address:",
+          "input_bbox": {
+            "l": 155.0,
+            "t": 565.0,
+            "r": 552.0,
+            "b": 567.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 574.18,
+            "r": 130.0,
+            "b": 564.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "phone_number:",
+          "label": "Phone Number:",
+          "input_bbox": {
+            "l": 155.0,
+            "t": 540.0,
+            "r": 552.0,
+            "b": 542.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 549.18,
+            "r": 125.0,
+            "b": 539.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        }
+      ]
+    },
+    {
+      "section_name": "2. ACCIDENT / INCIDENT DETAILS",
+      "fields": [
+        {
+          "field_id": "date_of_incident:",
+          "label": "Date of Incident:",
+          "input_bbox": {
+            "l": 167.02,
+            "t": 475.0,
+            "r": 310.0,
+            "b": 477.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 484.18,
+            "r": 145.0,
+            "b": 474.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "time:",
+          "label": "Time:",
+          "input_bbox": {
+            "l": 385.51,
+            "t": 475.0,
+            "r": 550.0,
+            "b": 477.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 320.0,
+            "t": 484.18,
+            "r": 345.0,
+            "b": 474.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "location_of_incident:",
+          "label": "Location of Incident:",
+          "input_bbox": {
+            "l": 165.0,
+            "t": 450.0,
+            "r": 552.0,
+            "b": 452.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 459.18,
+            "r": 165.0,
+            "b": 449.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "statement_of_facts:",
+          "label": "Statement of Facts:",
+          "input_bbox": {
+            "l": 65.0,
+            "t": 398.0,
+            "r": 552.0,
+            "b": 322.0,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 429.18,
+            "r": 155.0,
+            "b": 419.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "authorized_signature",
+          "label": "Authorized Signature",
+          "input_bbox": {
+            "l": 65.0,
+            "t": 264.18,
+            "r": 160.0,
+            "b": 256.18,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 60.0,
+            "t": 254.18,
+            "r": 160.0,
+            "b": 244.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "date",
+          "label": "Date",
+          "input_bbox": {
+            "l": 437.0,
+            "t": 264.18,
+            "r": 452.0,
+            "b": 256.18,
+            "coord_origin": "BOTTOMLEFT"
+          },
+          "label_bbox": {
+            "l": 432.0,
+            "t": 254.18,
+            "r": 452.0,
+            "b": 244.93,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        },
+        {
+          "field_id": "form_ref:_motor-claim-2026-v",
+          "label": "Form Ref: MOTOR-CLAIM-2026-V2",
+          "input_bbox": null,
+          "label_bbox": {
+            "l": 450.371,
+            "t": 45.026,
+            "r": 551.871,
+            "b": 38.551,
+            "coord_origin": "BOTTOMLEFT"
+          }
+        }
+      ]
+    }
+  ]
+}
