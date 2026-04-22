@@ -81,25 +81,25 @@ INSTRUCTIONS FOR SPEECH-OPTIMIZED OUTPUT:
 def generate_final_response(user_question, relevant_chunks, dialect):
     """
     Generates a speech-optimized answer tailored to a specific Southeast Asian dialect.
-    Model hierarchy: llama-3.3-70b-versatile (primary with retries) → llama-3.1-8b-instant (backup) → Ollama qwen2.5:7b
+    Model hierarchy: llama-4-scout (primary with retries) → llama-3.1-8b-instant (backup) → Ollama qwen2.5:7b
     """
     prompt = _build_prompt(user_question, relevant_chunks, dialect)
 
-    # Try llama-3.3-70b-versatile first (primary model with retry logic)
+    # Try llama-4-scout first (primary model with retry logic)
     max_retries = 3
     retry_delay = 2
 
     for attempt in range(max_retries):
         try:
             if attempt > 0:
-                print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for llama-3.3-70b-versatile...")
+                print(f"🔄 Retry attempt {attempt + 1}/{max_retries} for llama-4-scout...")
                 import time
                 time.sleep(retry_delay * attempt)
             else:
-                print("✨ Using llama-3.3-70b-versatile (primary)...")
+                print("✨ Using llama-4-scout (primary)...")
 
             response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
                 max_tokens=1024,
@@ -108,11 +108,11 @@ def generate_final_response(user_question, relevant_chunks, dialect):
             answer = response.choices[0].message.content
             if answer:
                 clean_text = answer.replace("*", "").replace("#", "").strip()
-                print("✅ llama-3.3-70b-versatile response generated successfully")
+                print("✅ llama-4-scout response generated successfully")
                 return clean_text
 
             if attempt < max_retries - 1:
-                print("⚠️ llama-3.3-70b-versatile returned empty response, retrying...")
+                print("⚠️ llama-4-scout returned empty response, retrying...")
                 continue
 
         except Exception as e:
@@ -120,12 +120,12 @@ def generate_final_response(user_question, relevant_chunks, dialect):
 
             if 'rate' in error_msg or 'quota' in error_msg or 'limit' in error_msg or '429' in error_msg:
                 if attempt < max_retries - 1:
-                    print(f"⚠️ llama-3.3-70b-versatile rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
+                    print(f"⚠️ llama-4-scout rate limit hit, retrying in {retry_delay * (attempt + 1)}s...")
                     continue
                 else:
-                    print(f"⚠️ llama-3.3-70b-versatile rate limit exceeded after {max_retries} attempts")
+                    print(f"⚠️ llama-4-scout rate limit exceeded after {max_retries} attempts")
             else:
-                print(f"⚠️ llama-3.3-70b-versatile error: {e}")
+                print(f"⚠️ llama-4-scout error: {e}")
                 if attempt < max_retries - 1:
                     continue
 

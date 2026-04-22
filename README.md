@@ -146,9 +146,10 @@ Bridge uses a sophisticated RAG (Retrieval-Augmented Generation) pipeline to del
 
 ### AI & Machine Learning
 - **LLMs**: 
-  - Groq (Llama 4 Scout, Llama 3.3-70b, Llama 3.1-8b) — Fast inference
-  - Google Gemini — Vision and multimodal capabilities
-  - Ollama — Local fallback for offline use
+  - Groq Llama 4 Scout (17B) — Primary model for all deployments
+  - Groq Llama 3.1-8b-instant — Backup model
+  - Google Gemini 1.5 Flash — Vision and multimodal capabilities
+  - Ollama qwen2.5:7b — Local fallback for offline use
 - **Embeddings**: Sentence-Transformers, Hugging Face models
 - **Vector Database**: ChromaDB for semantic search
 - **GPU Acceleration**: PyTorch with CUDA 11.8 support
@@ -616,17 +617,35 @@ COLLECTION_NAME = "government_docs"
 
 ### LLM Configuration
 
-LLM settings are in `engine/speech/response_gen.py`:
+LLM settings are consistent across all deployment modes:
 
+**Primary Model** (Desktop App & Telegram Bot):
 ```python
-# Primary LLM (Groq)
-GROQ_MODEL = "llama-3.3-70b-versatile"
-GROQ_TEMPERATURE = 0.7
+# Primary LLM (Groq Llama 4 Scout)
+GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_TEMPERATURE = 0.4
 GROQ_MAX_TOKENS = 1024
 
-# Fallback LLM (Gemini)
-GEMINI_MODEL = "gemini-1.5-flash"
+# Backup LLM
+BACKUP_MODEL = "llama-3.1-8b-instant"
+
+# Local Fallback (Ollama)
+OLLAMA_MODEL = "qwen2.5:7b"
 ```
+
+**Vision/Image Analysis**:
+```python
+# Groq Vision (Telegram bot)
+VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+# Gemini Vision (Desktop app & document processing)
+GEMINI_VISION_MODEL = "gemini-1.5-flash"
+```
+
+**Model Hierarchy**:
+1. Llama 4 Scout (primary, with 3 retry attempts)
+2. Llama 3.1-8b-instant (backup if primary fails)
+3. Ollama qwen2.5:7b (local fallback if all cloud models fail)
 
 ---
 
